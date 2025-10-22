@@ -10,15 +10,34 @@ class DatasetManager:
 
     def get_federated_dataloaders(self):
         """
-        Create dataloaders for federated training.
+        Create dataloaders for federated training, ensuring time (T) and event (E) columns are separated.
         """
         dataloaders = {}
         for center in self.config.centers:
             train_ds = FedTcgaBrca(center=center, train=True)
             test_ds = FedTcgaBrca(center=center, train=False)
+
+            # Extract features, time, and event columns for training
+            train_features = [sample["features"][:39] for sample in train_ds]  # First 39 columns are features
+            train_time = [sample["time"] for sample in train_ds]
+            train_event = [sample["event"] for sample in train_ds]
+
+            # Extract features, time, and event columns for testing
+            test_features = [sample["features"][:39] for sample in test_ds]  # First 39 columns are features
+            test_time = [sample["time"] for sample in test_ds]
+            test_event = [sample["event"] for sample in test_ds]
+
             dataloaders[center] = {
-                "train": DataLoader(train_ds, batch_size=self.config.batch_size, shuffle=True),
-                "test": DataLoader(test_ds, batch_size=self.config.batch_size, shuffle=False)
+                "train": {
+                    "features": train_features,
+                    "time": train_time,
+                    "event": train_event
+                },
+                "test": {
+                    "features": test_features,
+                    "time": test_time,
+                    "event": test_event
+                }
             }
         return dataloaders
 
