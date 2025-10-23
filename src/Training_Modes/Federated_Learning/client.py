@@ -54,10 +54,12 @@ import numpy as np
 #         return metrics["accuracy"], len(self.test_loader.dataset), {}
 
 class FederatedCoxClient(NumPyClient):
-    def __init__(self, dataset_manager, config):
-        self.model = CustomCoxModel()
-        self.config = config
+    def __init__(self, cid, name, model, dataset_manager, config):
+        self.cid = cid
+        self.name = name
+        self.model = model
         self.dataset_manager = dataset_manager
+        self.config = config
 
         # Load data using dataset_manager:
         self.dataloaders = self.dataset_manager.get_federated_dataloaders()
@@ -73,7 +75,7 @@ class FederatedCoxClient(NumPyClient):
 
     def set_parameters(self, parameters):
         """Set model parameters (fixed effects coefficients)."""
-        self.model.beta = np.array(parameters)
+        self.model.beta = parameters[0]
 
     def fit(self, parameters, config):
         """Train the model on local data using the generic train function."""
@@ -90,7 +92,7 @@ class FederatedCoxClient(NumPyClient):
         self.set_parameters(parameters)
 
         # Use the dispatcher function from utils.py
-        metrics = evaluate_model(self.model, self.test_data, self.config)
+        metrics = evaluate_model(self.model, self.test_data, self.config, train_data=self.train_data)
         
         num_examples = len(self.test_data["features"])
         

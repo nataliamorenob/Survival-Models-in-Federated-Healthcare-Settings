@@ -89,9 +89,13 @@ class CustomCoxModel:
         """ Predict risk scores for new data. """
         return np.dot(X, self.beta) + self.b_j
 
-    def get_coefficients(self): 
-        """ Get the model coefficients (fixed effects). """ 
-        return self.beta
+    def get_coefficients(self):
+        """Return model coefficients (fixed effects) as a list of NumPy arrays."""
+        if self.beta is None:
+            # initialize to random or zeros — both are okay
+            self.beta = np.zeros(39)  
+        return [self.beta]  # Flower expects a list of NumPy arrays
+
 
     def get_random_effect(self):
         """ Get the local random effect. """

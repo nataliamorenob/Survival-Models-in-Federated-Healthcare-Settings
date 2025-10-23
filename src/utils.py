@@ -41,6 +41,7 @@ def evaluate_model(
     model: Any,
     test_data: Any,
     config: Any,
+    train_data: Any = None,
 ) -> Dict[str, float]:
     """
     Generic evaluation function for the final test set.
@@ -52,7 +53,7 @@ def evaluate_model(
     elif isinstance(model, CustomCoxModel):
         logging.info("Dispatching to CustomCoxModel testing.")
         # This function is for the final test evaluation
-        return _calculate_cox_metrics(model, test_data, config, description="Test")
+        return _calculate_cox_metrics(model, test_data, config, train_data=train_data, description="Test")
     else:
         raise TypeError(f"Unsupported model type for evaluation: {type(model)}")
 
@@ -60,7 +61,7 @@ def evaluate_model(
 
 
 # Metrics:
-def _calculate_cox_metrics(model, data, config, description="Evaluation"):
+def _calculate_cox_metrics(model, data, config, train_data=None, description="Evaluation"):
     """
     Calculates and returns a dictionary of survival analysis metrics
     using scikit-survival.
@@ -77,9 +78,17 @@ def _calculate_cox_metrics(model, data, config, description="Evaluation"):
     logging.info(f"[{description}] Concordance Index: {c_index:.6f}")
 
     # --- 2. Prepare data for scikit-survival metrics ---
-    # sksurv expects structured arrays for survival data.
-    train_event_times = np.array(config.train_data_for_metrics["time"])
-    train_event_indicators = np.array(config.train_data_for_metrics["event"]).astype(bool)
+    # If train_data is not provided, try to get it from config (for backward compatibility)
+    if train_data is None:
+        if hasattr(config, "train_data_for_metrics"):
+            train_data = config.train_data_for_metrics
+        else:
+            raise ValueError(
+                "train_data must be provided either directly or via config.train_data_for_metrics."
+            )
+
+    train_event_times = np.array(train_data["time"])
+    train_event_indicators = np.array(train_data["event"]).astype(bool)
     train_structured_array = np.array(
         list(zip(train_event_indicators, train_event_times)), 
         dtype=[('event', 'bool'), ('time', 'f8')]

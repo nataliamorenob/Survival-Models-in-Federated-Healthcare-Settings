@@ -28,9 +28,10 @@ class Config:
     num_epochs: int = 2
     batch_size: int = 32
     strategy: str = "FedAvg"
+    lr: float = 0.001
     
     # Data parameters:
-    centers: list = field(default_factory=lambda: ['0', '1', '2', '3', '4', '5', '6'])
+    centers: list = field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
 
     # Runtime paths (initialized in __post_init__):
     results_dir: Path = None
