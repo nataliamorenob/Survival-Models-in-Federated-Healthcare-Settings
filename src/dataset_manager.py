@@ -1,5 +1,6 @@
 from flamby.datasets.fed_tcga_brca import FedTcgaBrca
 from torch.utils.data import DataLoader, ConcatDataset
+import numpy as np
 
 class DatasetManager:
     def __init__(self, config):
@@ -10,28 +11,61 @@ class DatasetManager:
 
     def get_federated_dataloaders(self):
         """
-        Create dataloaders for federated training, ensuring time (T) and event (E) columns are separated.
+        Create dataloaders for federated training. This method now splits the
+        original training data into an 80% training set and a 20% validation set.
+        It also scales the age feature based on the mean/std of the original training set.
         """
         dataloaders = {}
         for center in self.config.centers:
-            train_ds = FedTcgaBrca(center=center, train=True)
+            # Load the full training and test sets for the center
+            full_train_ds = FedTcgaBrca(center=center, train=True)
             test_ds = FedTcgaBrca(center=center, train=False)
 
-            # Extract features, time, and event columns for training
-            train_features = [sample["features"][:39] for sample in train_ds]  # First 39 columns are features
-            train_time = [sample["time"] for sample in train_ds]
-            train_event = [sample["event"] for sample in train_ds]
+            # 1. Calculate scaling parameters from the entire original training set
+            train_ages = [sample["features"][0] for sample in full_train_ds]
+            age_mean = np.mean(train_ages)
+            age_std = np.std(train_ages)
 
-            # Extract features, time, and event columns for testing
-            test_features = [sample["features"][:39] for sample in test_ds]  # First 39 columns are features
-            test_time = [sample["time"] for sample in test_ds]
-            test_event = [sample["event"] for sample in test_ds]
+            # 2. Split the original training data into training and validation sets
+            # Convert to list to shuffle and split
+            full_train_list = list(full_train_ds)
+            np.random.shuffle(full_train_list)  # Shuffle for a random split
+            
+            split_idx = int(len(full_train_list) * 0.8)
+            train_ds_split = full_train_list[:split_idx]
+            val_ds_split = full_train_list[split_idx:]
+
+            # 3. Helper function to process datasets (apply scaling)
+            def _process_dataset(dataset):
+                features = []
+                for sample in dataset:
+                    processed_features = sample["features"].copy()
+                    # Scale age feature (feature_0) using params from the full training set
+                    if age_std > 0:
+                        processed_features[0] = (processed_features[0] - age_mean) / age_std
+                    else:
+                        processed_features[0] = 0  # Handle case where std is zero
+                    features.append(processed_features[:39])
+                
+                time = [sample["time"] for sample in dataset]
+                event = [sample["event"] for sample in dataset]
+                return features, time, event
+
+            # 4. Process the new train, validation, and test sets
+            train_features, train_time, train_event = _process_dataset(train_ds_split)
+            val_features, val_time, val_event = _process_dataset(val_ds_split)
+            test_features, test_time, test_event = _process_dataset(test_ds)
 
             dataloaders[center] = {
                 "train": {
                     "features": train_features,
                     "time": train_time,
                     "event": train_event
+                },
+                "val": {
+                    "features": val_features,
+                    "time": val_time,
+                    "event": val_event
                 },
                 "test": {
                     "features": test_features,

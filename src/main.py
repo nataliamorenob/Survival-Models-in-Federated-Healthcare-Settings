@@ -1,9 +1,7 @@
 import logging
 import os
-from config import get_default_config
-from Training_Modes.Federated_Learning.client import FLClient
-from utils import train, test
-from Models.CoxPH import fit_cox_model
+from config import Config
+from Training_Modes.Federated_Learning.client import FederatedCoxClient
 from config import Config
 import flwr as fl
 from dataset_manager import DatasetManager
@@ -12,7 +10,18 @@ from Training_Modes.Federated_Learning.strategies import get_strategy
 
 # Configure logging for experiments:
 def init_logging(config):
+    # Debugging: Print the experiment directory and ID
+    print(f"Debug: experiment_id = {config.experiment_id}")
+    print(f"Debug: experiment_dir = {config.experiment_dir}")
+
+    # Log the experiment directory path
+    logger = logging.getLogger("main")
+    logger.info(f"Attempting to create experiment directory at: {config.experiment_dir}")
+
+    # Ensure the directory is created
     os.makedirs(config.experiment_dir, exist_ok=True)
+    print(f"Experiment directory created at: {config.experiment_dir}")
+
     log_filename = os.path.join(config.experiment_dir, f"experiment_{config.experiment_id}.log")
 
     logging.basicConfig(
@@ -48,7 +57,7 @@ def main(config: Config):
             dm = DatasetManager(config=config, client_idx=cid_int)
             model = ModelManager(config).get_model()
 
-            return FLClient(
+            return FederatedCoxClient(
                 cid=cid_int,
                 name=client_name,
                 model=model,
@@ -91,7 +100,10 @@ if __name__ == "__main__":
         batch_size=32,
     )
 
-    
+    print("Debug: Script has entered the __name__ == '__main__' block.")
 
-    # Call main function with user configuration
-    main(user_config)
+    try:
+        # Call main function with user configuration
+        main(user_config)
+    except Exception as e:
+        print(f"An error occurred: {e}")

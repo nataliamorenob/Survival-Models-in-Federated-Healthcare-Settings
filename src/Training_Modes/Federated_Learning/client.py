@@ -1,6 +1,5 @@
-from utils import train, test
 import flwr as fl
-from fl.client import NumPyClient
+from flwr.client import NumPyClient
 from dataset_manager import DatasetManager
 from typing import Dict, Tuple
 from flwr.common import NDArrays, Scalar
@@ -60,13 +59,15 @@ class FederatedCoxClient(NumPyClient):
         self.config = config
         self.dataset_manager = dataset_manager
 
-        # Load data using DatasetManager
+        # Load data using dataset_manager:
         self.dataloaders = self.dataset_manager.get_federated_dataloaders()
         self.center = list(self.dataloaders.keys())[0]  
         self.train_data = self.dataloaders[self.center]["train"]
+        self.val_data = self.dataloaders[self.center]["val"]
         self.test_data = self.dataloaders[self.center]["test"]
 
-    def get_parameters(self):
+
+    def get_parameters(self, config=None):
         """Return model parameters (fixed effects coefficients)."""
         return self.model.get_coefficients()
 
@@ -75,32 +76,29 @@ class FederatedCoxClient(NumPyClient):
         self.model.beta = np.array(parameters)
 
     def fit(self, parameters, config):
-        """Train the model on local data."""
+        """Train the model on local data using the generic train function."""
         self.set_parameters(parameters)
+        
+        # Use the dispatcher function from utils.py
+        train_model(self.model, self.train_data, self.val_data, self.config)
 
-        # Extract training data
-        X_train = np.array(self.train_data["features"])
-        T_train = np.array(self.train_data["time"])
-        E_train = np.array(self.train_data["event"])
-
-        # Train the model
-        self.model.fit(X_train, T_train, E_train, lr=config.get("lr", 0.01), epochs=config.get("epochs", 10))
-
-        # Return updated parameters and number of samples
-        return self.get_parameters(), len(X_train), {}
+        num_examples = len(self.train_data["features"])
+        return self.get_parameters(), num_examples, {}
 
     def evaluate(self, parameters, config):
-        """Evaluate the model on local test data."""
+        """Evaluate the model on local test data using the generic evaluate function."""
         self.set_parameters(parameters)
 
-        # Extract test data
-        X_test = np.array(self.test_data["features"])
-        T_test = np.array(self.test_data["time"])
-        E_test = np.array(self.test_data["event"])
-
-        # Predict risk scores (evaluation metric can be customized)
-        risk_scores = self.model.predict_risk(X_test)
-        return 0.0, len(X_test), {}
+        # Use the dispatcher function from utils.py
+        metrics = evaluate_model(self.model, self.test_data, self.config)
+        
+        num_examples = len(self.test_data["features"])
+        
+        # Flower's evaluate function expects a loss value to be returned.
+        # We can return a placeholder and pass the real metrics in the dictionary.
+        loss = 0.0 
+        
+        return loss, num_examples, metrics
 
     def get_random_effect(self):
         """Return the local random effect."""

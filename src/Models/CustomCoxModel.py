@@ -3,67 +3,96 @@ import pandas as pd
 
 class CustomCoxModel:
     def __init__(self):
-        self.beta = None  # Global coefficients (fixed effects)
-        self.b_j = 0.0  # Local random effect
+        self.beta = None # Global coefficients (fixed effects)
+        self.b_j = 0.0 # Local random effect
+        self.baseline_cumulative_hazard_ = None
+        self.event_times_ = None
+
+    def _run_training_epoch(self, X, T, E, lr):
+        """
+        Runs a single epoch of gradient descent.
+        """
+        n_samples, n_features = X.shape
+        
+        risk_scores = np.dot(X, self.beta) + self.b_j # (Xiβ+bj)
+        exp_risk_scores = np.exp(risk_scores)
+
+        partial_likelihood_beta = np.zeros(n_features)
+        partial_likelihood_bj = 0.0
+
+        risk_set_sums = np.array([np.sum(exp_risk_scores[i:]) for i in range(n_samples)])
+
+        for i in range(n_samples):
+            if E[i] == 1:
+                risk_set_sum = risk_set_sums[i]
+                if risk_set_sum > 0:
+                    weighted_covariates_sum = np.sum(X[i:] * (exp_risk_scores[i:] / risk_set_sum)[:, None], axis=0)
+                    partial_likelihood_beta += X[i] - weighted_covariates_sum
+                    partial_likelihood_bj += 1 - np.sum(exp_risk_scores[i:] / risk_set_sum)
+
+        self.beta += lr * partial_likelihood_beta
+        self.b_j += lr * partial_likelihood_bj
 
     def fit(self, X, T, E, lr=0.01, epochs=100):
         """
-        Fit the mixed Cox model using partial likelihood.
-
-        Parameters:
-            X (np.ndarray): Feature matrix (n_samples, n_features).
-            T (np.ndarray): Time-to-event data.
-            E (np.ndarray): Event indicator (1 if event occurred, 0 if censored).
-            lr (float): Learning rate for gradient descent.
-            epochs (int): Number of training epochs.
+        This is now a simple wrapper for a single epoch for use in the main training loop.
+        The baseline hazard is computed separately.
         """
         n_samples, n_features = X.shape
-        self.beta = np.zeros(n_features)  # Initialize fixed effects
+        if self.beta is None:
+            self.beta = np.zeros(n_features)
 
-        # Sort by time (ascending)
+        # Sort data by time for correct risk set calculation
         order = np.argsort(T)
-        X, T, E = X[order], T[order], E[order]
+        X_sorted, T_sorted, E_sorted = X[order], T[order], E[order]
+        
+        self._run_training_epoch(X_sorted, T_sorted, E_sorted, lr)
 
+    def finalize_fit(self, X, T, E):
+        """
+        Computes the baseline cumulative hazard function using the Breslow estimator.
+        This should be called once after the best model parameters are determined.
+        """
+        # Sort data just in case
+        order = np.argsort(T)
+        X_sorted, T_sorted, E_sorted = X[order], T[order], E[order]
 
-        for epoch in range(epochs):
-            risk_scores = np.dot(X, self.beta) + self.b_j
-            exp_risk_scores = np.exp(risk_scores)
+        base_risk_scores = np.exp(np.dot(X_sorted, self.beta))
+        
+        unique_event_times = np.unique(T_sorted[E_sorted == 1])
+        
+        baseline_hazard = []
+        for t in unique_event_times:
+            risk_set_sum = np.sum(base_risk_scores[T_sorted >= t])
+            events_at_t = np.sum(E_sorted[T_sorted == t])
+            
+            if risk_set_sum > 0:
+                baseline_hazard.append(events_at_t / risk_set_sum)
+        
+        self.baseline_cumulative_hazard_ = np.cumsum(baseline_hazard)
+        self.event_times_ = unique_event_times
 
-            # Compute the partial likelihood gradient for beta and b_j
-            partial_likelihood_beta = np.zeros(n_features)
-            partial_likelihood_bj = 0.0
+    def predict_survival_function(self, X_new):
+        """
+        Predict the survival function for new individuals.
+        """
+        if self.baseline_cumulative_hazard_ is None:
+            raise RuntimeError("The model has not been finalized. Call `finalize_fit` first.")
 
-            for i in range(n_samples):
-                if E[i] == 1:  # Only consider events
-                    risk_set = exp_risk_scores[i:]
-                    partial_likelihood_beta += X[i] - np.sum(X[i:] * (risk_set / np.sum(risk_set))[:, None], axis=0)
-                    partial_likelihood_bj += 1 - np.sum(risk_set / np.sum(risk_set))
-
-            # Update beta and b_j using gradient descent
-            self.beta += lr * partial_likelihood_beta
-            self.b_j += lr * partial_likelihood_bj
+        risk_scores = np.exp(np.dot(X_new, self.beta) + self.b_j)
+        individual_cumulative_hazards = np.outer(self.baseline_cumulative_hazard_, risk_scores)
+        survival_probabilities = np.exp(-individual_cumulative_hazards)
+        
+        return pd.DataFrame(survival_probabilities, index=self.event_times_, columns=range(X_new.shape[0]))
 
     def predict_risk(self, X):
-        """
-        Predict risk scores for new data.
-
-        Parameters:
-            X (np.ndarray): Feature matrix (n_samples, n_features).
-
-        Returns:
-            np.ndarray: Risk scores.
-        """
+        """ Predict risk scores for new data. """
         return np.dot(X, self.beta) + self.b_j
 
     def get_coefficients(self): 
-        """ Get the model coefficients (fixed effects). Returns: np.ndarray: Coefficients (beta). """ 
+        """ Get the model coefficients (fixed effects). """ 
         return self.beta
 
     def get_random_effect(self):
-        """
-        Get the local random effect.
-
-        Returns:
-            float: Random effect (b_j).
-        """
+        """ Get the local random effect. """
         return self.b_j
