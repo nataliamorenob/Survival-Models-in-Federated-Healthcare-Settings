@@ -36,7 +36,8 @@ class DatasetManager:
             # Load FLamby datasets
             full_train_ds = FedTcgaBrca(center=center, train=True)
             test_ds = FedTcgaBrca(center=center, train=False)
-
+            print(f"[DEBUG] Center {center}: train={len(full_train_ds)} test={len(test_ds)}")
+            
             # 1- Compute scaling parameters for the "age" feature
             train_ages = []
             for sample in full_train_ds:
