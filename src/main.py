@@ -21,16 +21,10 @@ print("DEBUG: reached end of import section successfully")
 # Configure logging for experiments:
 def init_logging(config):
     # Debugging: Print the experiment directory and ID
-    print(f"Debug: experiment_id = {config.experiment_id}")
-    print(f"Debug: experiment_dir = {config.experiment_dir}")
-
-    # Log the experiment directory path
     logger = logging.getLogger("main")
-    logger.info(f"Attempting to create experiment directory at: {config.experiment_dir}")
 
     # Ensure the directory is created
     os.makedirs(config.experiment_dir, exist_ok=True)
-    print(f"Experiment directory created at: {config.experiment_dir}")
 
     log_filename = os.path.join(config.experiment_dir, f"experiment_{config.experiment_id}.log")
 
@@ -42,11 +36,8 @@ def init_logging(config):
             logging.FileHandler(log_filename)
         ]
     )
-    logger = logging.getLogger("main")
     logger.info(f"Logging initialized for experiment {config.experiment_id}, log file: {log_filename}")
     return logger
-
-
 
 
 def main(config: Config):
@@ -54,38 +45,21 @@ def main(config: Config):
     logger = init_logging(config)
     logging.getLogger().setLevel(logging.INFO)
     logger.info(f"Experiment started: {config.experiment_id}")
-    
-
-
-
 
     # Check training mode and proceed accordingly:
     if config.training_mode == "federated": # Federated Learning Simulation
 
-        
-        # def client_fn(cid: str):
-        #     cid_int = int(cid)
-        #     client_name = config.centers[cid_int]
-            
-        #     dm = DatasetManager(config=config, client_idx=cid_int)
-        #     model = ModelManager(config).get_model()
-
-        #     return FederatedCoxClient(
-        #         cid=cid_int,
-        #         name=client_name,
-        #         model=model,
-        #         config=config,
-        #         dataset_manager=dm
-        #     )
-
         def client_fn(cid: str):
+            # This function will be executed in a separate process for each client.
+            init_logging(config)
+            
             cid_int = int(cid)
             client_name = config.centers[cid_int]
 
             # Create the dataset manager for this client
             dm = DatasetManager(config=config, client_idx=cid_int)
 
-            # Initialize model correctly
+            # Initialize model with ModelManager
             model_manager = ModelManager(config)
             model_manager.initialize_model()
             model = model_manager.get_model()
@@ -94,10 +68,11 @@ def main(config: Config):
             return FederatedCoxClient(
                 cid=cid_int,
                 name=client_name,
-                model=model,
+                model=model, # CoxPH_model function (inside the CoxPHFitter + fit())
                 config=config,
-                dataset_manager=dm
+                dataset_manager=dm # data for this client (center)
             )
+
         strategy = get_strategy(config.strategy)
         logger.info("Starting Federated Learning simulation...")
         fl.simulation.start_simulation(
@@ -109,16 +84,13 @@ def main(config: Config):
 
     elif config.training_mode == "centralized":
         # Centralized Training
+        logger.info("Centralized training mode selected. Exiting.")
         quit()
- 
 
     elif config.training_mode == "local":
         # Local Training
+        logger.info("Local training mode selected. Exiting.")
         quit()
-
-
-
-
 
 
 if __name__ == "__main__":
@@ -133,12 +105,4 @@ if __name__ == "__main__":
         num_epochs=2,
         batch_size=32,
     )
-    print(f"DEBUG: Config created at {user_config.experiment_dir}")
-
-    import traceback
-
-    try:
-        main(user_config)
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        traceback.print_exc()
+    main(user_config)

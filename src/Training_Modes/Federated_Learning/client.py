@@ -53,11 +53,14 @@ import numpy as np
 #         metrics = evaluate_model(self.model, self.test_loader, self.config)
 #         return metrics["accuracy"], len(self.test_loader.dataset), {}
 
+from config import ALL_FEATURE_COLUMNS
+
 class FederatedCoxClient(NumPyClient):
     def __init__(self, cid, name, model, dataset_manager, config):
         self.cid = cid
         self.name = name
-        self.model = model
+        self.model_fn = model # model constructor/function (CoxPH_model)
+        self.model = None # will store the trained model instance
         self.dataset_manager = dataset_manager
         self.config = config
 
@@ -65,41 +68,76 @@ class FederatedCoxClient(NumPyClient):
         self.dataloaders = self.dataset_manager.get_federated_dataloaders()
         self.center = list(self.dataloaders.keys())[0]  
         self.train_data = self.dataloaders[self.center]["train"]
-        self.val_data = self.dataloaders[self.center]["val"]
+        self.val_data = self.dataloaders[self.center]["val"] # Returns None for CoxPH_model
         self.test_data = self.dataloaders[self.center]["test"]
 
+        # For CoxPH model:
+        self.fitted_model = None # holds the trained lifelines.CoxPHFitter model after training
+        # For deep models: 
+        self.weights = None
+        self.local_beta = None
 
     def get_parameters(self, config=None):
-        """Return model parameters (fixed effects coefficients)."""
-        return self.model.get_coefficients()
+        #"""Return model parameters (fixed effects coefficients)."""
+        #return self.model.get_coefficients()
+        """Return model parameters depending on model type."""
+        if self.config.model.lower() == "coxph":
+            if self.fitted_model is not None:
+                # Return parameters aligned with the global feature list
+                params = self.fitted_model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0)
+                return [params.values]
+            else: 
+                # Return zeros for all feature columns
+                return [np.zeros(len(ALL_FEATURE_COLUMNS))]
+        else: # TO DO
+            # Deep models should implement get_weights()
+            return self.model.get_weights()
 
     def set_parameters(self, parameters):
-        """Set model parameters (fixed effects coefficients)."""
-        self.model.beta = parameters[0]
+        # """Set model parameters (fixed effects coefficients)."""
+        # self.model.beta = parameters[0]
+        if self.config.model.lower() == "coxph":
+            # Lifelines CoxPHFitter does not allow direct coefficient injection
+            self.local_beta = parameters[0]
+        else: # TO DO
+            # Deep model parameters
+            self.model.set_weights(parameters)
 
     def fit(self, parameters, config):
         """Train the model on local data using the generic train function."""
         self.set_parameters(parameters)
         
-        # Use the dispatcher function from utils.py
-        train_model(self.model, self.train_data, self.val_data, self.config)
+        if self.config.model.lower() == "coxph":
+            # Train CoxPH on DataFrame
+            self.model = self.model_fn(
+                self.train_data,
+                config=self.config,
+                client_id=self.cid,
+                duration_col="time",
+                event_col="event",
+            )
+        else: # TO DO
+            # Train deep survival model
+            train_model(self.model, self.train_data, self.val_data, self.config)
 
-        num_examples = len(self.train_data["features"])
+        num_examples = len(self.train_data)
         return self.get_parameters(), num_examples, {}
 
     def evaluate(self, parameters, config):
         """Evaluate the model on local test data using the generic evaluate function."""
         self.set_parameters(parameters)
 
-        # Use the dispatcher function from utils.py
-        metrics = evaluate_model(self.model, self.test_data, self.config, train_data=self.train_data)
-        
-        num_examples = len(self.test_data["features"])
-        
-        # Flower's evaluate function expects a loss value to be returned.
-        # We can return a placeholder and pass the real metrics in the dictionary.
-        loss = 0.0 
-        
+        model_to_eval = self.model
+
+        metrics = evaluate_model(
+            model_to_eval,
+            self.test_data,
+            self.config,
+            train_data=self.train_data,
+        )
+
+        num_examples = len(self.test_data)
+        loss = 0.0
         return loss, num_examples, metrics
 
     def get_random_effect(self):

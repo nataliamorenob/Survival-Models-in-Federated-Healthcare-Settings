@@ -1,4 +1,5 @@
 from Models.CustomCoxModel import CustomCoxModel
+from Models.CoxPH import CoxPH_model
 
 class ModelManager:
     def __init__(self, config):
@@ -7,8 +8,8 @@ class ModelManager:
 
     def initialize_model(self):
         if self.config.model == "CoxPH":
-            self.model = CustomCoxModel()
-        else:
+            self.model = CoxPH_model
+        else: # TO DO for other models
             raise ValueError(f"Unsupported model type: {self.config.model}")
 
     def get_model(self):

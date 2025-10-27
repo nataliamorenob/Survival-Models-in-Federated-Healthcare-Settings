@@ -39,12 +39,19 @@ class Config:
 
     def __post_init__(self):
         """Ensure the results directory and experiment-specific subfolder are created."""
-        results_dir = Path("results")
+        # Get the project root, which is the parent of the 'src' directory
+        project_root = Path(__file__).parent.parent
+        results_dir = project_root / "src" / "results"
+        
         experiment_dir = results_dir / self.experiment_id
         experiment_dir.mkdir(parents=True, exist_ok=True)
+        
         # Store the paths for later use:
         self.results_dir = results_dir
         self.experiment_dir = experiment_dir
+
+# Global feature list for the TCGA-BRCA dataset
+ALL_FEATURE_COLUMNS = [f"feature_{i}" for i in range(39)]
 
 
 
