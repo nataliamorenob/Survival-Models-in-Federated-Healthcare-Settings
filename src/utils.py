@@ -15,7 +15,7 @@ from Models.CustomCoxModel import CustomCoxModel
 # Import metrics from lifelines and scikit-survival
 from lifelines.utils import concordance_index
 from sksurv.metrics import brier_score, cumulative_dynamic_auc
-
+from lifelines import CoxPHFitter
 
 def train_model(
     model: Any,
@@ -42,6 +42,7 @@ def evaluate_model(
     test_data: Any,
     config: Any,
     train_data: Any = None,
+    client_id: int = None,
 ) -> Dict[str, float]:
     """
     Generic evaluation function for the final test set.
@@ -54,11 +55,128 @@ def evaluate_model(
         logging.info("Dispatching to CustomCoxModel testing.")
         # This function is for the final test evaluation
         return _calculate_cox_metrics(model, test_data, config, train_data=train_data, description="Test")
+    elif isinstance(model, CoxPHFitter):
+        logging.info("Dispatching to Lifelines CoxPHFitter evaluation.")
+        return _evaluate_lifelines_cox(model, test_data, config, train_data=train_data, description="Test", client_id=client_id)
     else:
         raise TypeError(f"Unsupported model type for evaluation: {type(model)}")
 
 
+def _evaluate_lifelines_cox(model, data, config, train_data=None, description="Evaluation", client_id=None):
+    """
+    Evaluate a fitted lifelines.CoxPHFitter model using:
+    - Concordance Index (C-index)
+    - Time-dependent AUC (sksurv)
+    - Integrated Brier Score (IBS)
+    """
+    client_tag = f"[Client {client_id}] " if client_id is not None else ""
+    logging.info(f"{client_tag}Evaluating Lifelines CoxPH model on {description} data...")
 
+    #logging.info(f"Evaluating Lifelines CoxPH model on {description} data...")
+
+    logging.info("────────────────────────────────────────────────────────")
+    logging.info(f"{client_tag} CoxPH Evaluation Results ({description})")
+    logging.info("────────────────────────────────────────────────────────")
+
+    # --- 1. Extract features and labels ---
+    feature_cols = [c for c in data.columns if c.startswith("feature_")]
+    X_test = data[feature_cols]
+    T_test = data["time"].values
+    E_test = data["event"].astype(int).values
+
+    # --- 2. Concordance Index ---
+    try:
+        risk_scores = -model.predict_partial_hazard(X_test)
+        c_index_test = concordance_index(T_test, risk_scores, E_test)
+        logging.info(f"[{description}] C-index: {c_index_test:.6f}")
+    except Exception as e:
+        logging.warning(f"Failed to compute C-index: {e}")
+        c_index_test = np.nan
+
+    # --- 3. Prepare training data (required for time-dependent metrics) ---
+    if train_data is None:
+        raise ValueError("train_data must be provided to compute AUC and IBS for CoxPH model")
+
+    feature_cols_train = [c for c in train_data.columns if c.startswith("feature_")]
+    X_train = train_data[feature_cols_train]
+    T_train = train_data["time"].values
+    E_train = train_data["event"].astype(int).values
+
+    train_structured = np.array(
+        list(zip(E_train.astype(bool), T_train)), dtype=[("event", "bool"), ("time", "f8")]
+    )
+    test_structured = np.array(
+        list(zip(E_test.astype(bool), T_test)), dtype=[("event", "bool"), ("time", "f8")]
+    )
+
+    # --- 4. Choose evaluation times ---
+    if hasattr(config, "global_eval_times") and config.global_eval_times is not None:
+        eval_times = np.array(config.global_eval_times)
+        logging.info(f"[{description}] Using global evaluation times from config: {eval_times}")
+    else:
+        try:
+            eval_times = np.quantile(T_test[E_test == 1], np.linspace(0.1, 0.9, 10))
+        except Exception:
+            eval_times = np.quantile(T_test, np.linspace(0.1, 0.9, 10))
+        logging.info(f"[{description}] Using local data-driven eval_times: {eval_times}")
+
+    # Filter times to be within the test data follow-up range
+    min_t, max_t = np.min(T_test), np.max(T_test)
+    eval_times = eval_times[(eval_times >= min_t) & (eval_times <= max_t)]
+    if len(eval_times) == 0:
+        logging.warning(f"[{description}] No valid eval_times within [{min_t}, {max_t}] — skipping metrics.")
+        return {f"{description.lower()}_c_index": c_index_test, f"{description.lower()}_mean_auc": np.nan, f"{description.lower()}_ibs": np.nan}
+
+
+    # --- 5. Time-dependent AUC ---
+    try:
+        aucs, mean_auc = cumulative_dynamic_auc(train_structured, test_structured, risk_scores, eval_times)
+        logging.info(f"[{description}] Mean time-dependent AUC: {mean_auc:.6f}")
+        logging.info(f"[{description}] Detailed AUC(t):")
+        for t, a in zip(eval_times, aucs):
+            logging.info(f"   ↳ AUC @ {t:.0f} days = {a:.4f}")
+    except Exception as e:
+        logging.warning(f"Failed to compute time-dependent AUC: {e}")
+        mean_auc = np.nan
+        aucs = []
+
+
+    # --- 6. Integrated Brier Score (IBS) ---
+    try:
+        # Predict survival probabilities for each test sample at all unique times
+        surv_df = model.predict_survival_function(X_test)  # DataFrame: index=time, columns=samples
+
+        # Make sure evaluation times are within the predicted range
+        valid_eval_times = [t for t in eval_times if t <= surv_df.index.max()]
+
+        # finds the closest available one (time)
+        surv_probs = surv_df.reindex(index=valid_eval_times, method="nearest").fillna(method="ffill").T.values
+
+        # Compute Brier score for each time
+        brier_times, brier_scores = brier_score(
+            train_structured, test_structured, surv_probs, valid_eval_times
+        )
+        logging.info(f"[{description}] Detailed Brier(t):")
+        for t, b in zip(brier_times, brier_scores):
+            logging.info(f"   ↳ Brier @ {t:.0f} days = {b:.4f}")
+
+        # Compute integrated Brier score (area under the curve)
+        ibs = np.trapz(brier_scores, brier_times) / (brier_times[-1] - brier_times[0])
+        logging.info(f"[{description}] Integrated Brier Score (IBS): {ibs:.6f}")
+
+    except Exception as e:
+        logging.warning(f"Failed to compute IBS: {e}")
+        ibs = np.nan
+
+    logging.info(f"{client_tag}[{description}] Summary: " 
+                 f"C-index={c_index_test:.4f}, Mean AUC={mean_auc:.4f}, IBS={ibs:.4f}")
+    logging.info("────────────────────────────────────────────────────────\n")
+
+    return {
+        f"{description.lower()}_c_index": float(c_index_test),
+        f"{description.lower()}_mean_auc": float(mean_auc),
+        f"{description.lower()}_ibs": float(ibs),
+    }
 
 # Metrics:
 def _calculate_cox_metrics(model, data, config, train_data=None, description="Evaluation"):

@@ -37,6 +37,9 @@ class Config:
     results_dir: Path = None
     experiment_dir: Path = None
 
+    # Metrics specific parameters
+    global_eval_times: list = field(default_factory=lambda: [100, 489, 878, 1267, 1656, 2044, 2433, 2822, 3211, 3500])
+    
     def __post_init__(self):
         """Ensure the results directory and experiment-specific subfolder are created."""
         # Get the project root, which is the parent of the 'src' directory

@@ -46,10 +46,15 @@ def main(config: Config):
     logging.getLogger().setLevel(logging.INFO)
     logger.info(f"Experiment started: {config.experiment_id}")
 
+    logger.info(f"[Global] Evaluation times set: {config.global_eval_times}")
+
     # Check training mode and proceed accordingly:
     if config.training_mode == "federated": # Federated Learning Simulation
 
         def client_fn(cid: str):
+            for handler in logging.root.handlers[:]:
+                logging.root.removeHandler(handler)
+
             # This function will be executed in a separate process for each client.
             init_logging(config)
             
@@ -71,7 +76,7 @@ def main(config: Config):
                 model=model, # CoxPH_model function (inside the CoxPHFitter + fit())
                 config=config,
                 dataset_manager=dm # data for this client (center)
-            )
+            ).to_client()
 
         strategy = get_strategy(config.strategy)
         logger.info("Starting Federated Learning simulation...")

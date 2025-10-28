@@ -72,19 +72,19 @@ class FederatedCoxClient(NumPyClient):
         self.test_data = self.dataloaders[self.center]["test"]
 
         # For CoxPH model:
-        self.fitted_model = None # holds the trained lifelines.CoxPHFitter model after training
-        # For deep models: 
-        self.weights = None
-        self.local_beta = None
+        # self.fitted_model = None # holds the trained lifelines.CoxPHFitter model after training
+        # # For deep models: 
+        # self.weights = None
+        # self.local_beta = None
 
     def get_parameters(self, config=None):
         #"""Return model parameters (fixed effects coefficients)."""
         #return self.model.get_coefficients()
         """Return model parameters depending on model type."""
         if self.config.model.lower() == "coxph":
-            if self.fitted_model is not None:
+            if self.model is not None:
                 # Return parameters aligned with the global feature list
-                params = self.fitted_model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0)
+                params = self.model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0)
                 return [params.values]
             else: 
                 # Return zeros for all feature columns
@@ -98,7 +98,10 @@ class FederatedCoxClient(NumPyClient):
         # self.model.beta = parameters[0]
         if self.config.model.lower() == "coxph":
             # Lifelines CoxPHFitter does not allow direct coefficient injection
-            self.local_beta = parameters[0]
+            if parameters:
+                self.local_beta = parameters[0]
+            else:
+                self.local_beta = None
         else: # TO DO
             # Deep model parameters
             self.model.set_weights(parameters)
@@ -109,12 +112,21 @@ class FederatedCoxClient(NumPyClient):
         
         if self.config.model.lower() == "coxph":
             # Train CoxPH on DataFrame
-            self.model = self.model_fn(
+            fitted_model = self.model_fn(
                 self.train_data,
                 config=self.config,
                 client_id=self.cid,
                 duration_col="time",
                 event_col="event",
+                init_params=self.local_beta,
+            )
+            self.model = fitted_model
+            
+            logging.info(
+                f"[Client {self.cid}] β mean={self.model.params_.mean():.4f}, "
+                f"std={self.model.params_.std():.4f}, "
+                f"min={self.model.params_.min():.4f}, "
+                f"max={self.model.params_.max():.4f}"
             )
         else: # TO DO
             # Train deep survival model
@@ -127,14 +139,29 @@ class FederatedCoxClient(NumPyClient):
         """Evaluate the model on local test data using the generic evaluate function."""
         self.set_parameters(parameters)
 
-        model_to_eval = self.model
+        if self.config.model.lower() == "coxph":
+            # In evaluation, we want to use the global model parameters.
+            # We create a temporary model and fit it with the global parameters as an initial point.
+            eval_model = self.model_fn(
+                self.train_data,
+                config=self.config,
+                client_id=self.cid,
+                duration_col="time",
+                event_col="event",
+                init_params=self.local_beta,
+            )
 
-        metrics = evaluate_model(
-            model_to_eval,
-            self.test_data,
-            self.config,
-            train_data=self.train_data,
-        )
+            metrics = evaluate_model(
+                eval_model,
+                self.test_data,
+                self.config,
+                train_data=self.train_data,
+                client_id=self.cid,
+            )
+        else:
+            if self.model is None:
+                raise RuntimeError("Deep model is None at evaluation!")
+            metrics = evaluate_model(self.model, self.test_data, self.config, train_data=self.train_data)
 
         num_examples = len(self.test_data)
         loss = 0.0
