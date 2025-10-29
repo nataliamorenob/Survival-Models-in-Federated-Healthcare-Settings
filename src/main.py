@@ -106,7 +106,7 @@ if __name__ == "__main__":
         training_mode="federated",
         num_clients=3,
         strategy="FedAvg",
-        num_rounds=2,
+        num_rounds=3,
         num_epochs=2,
         batch_size=32,
     )

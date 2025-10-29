@@ -7,7 +7,9 @@ from Training_Modes.Federated_Learning.task import get_weights, set_weights
 import logging
 from utils import train_model, evaluate_model
 from Models.CustomCoxModel import CustomCoxModel
+from Models.StackedLogisticRegression import StackedLogisticRegression
 import numpy as np
+import pandas as pd
 
 # class FLClient(NumPyClient):
 #     def __init__(self, model, dataset_manager, config):
@@ -60,7 +62,7 @@ class FederatedCoxClient(NumPyClient):
         self.cid = cid
         self.name = name
         self.model_fn = model # model constructor/function (CoxPH_model)
-        self.model = None # will store the trained model instance
+        self.model = model if config.model.lower() != "coxph" else None # will store the trained model instance
         self.dataset_manager = dataset_manager
         self.config = config
 
@@ -68,80 +70,114 @@ class FederatedCoxClient(NumPyClient):
         self.dataloaders = self.dataset_manager.get_federated_dataloaders()
         self.center = list(self.dataloaders.keys())[0]  
         self.train_data = self.dataloaders[self.center]["train"]
-        self.val_data = self.dataloaders[self.center]["val"] # Returns None for CoxPH_model
+        self.val_data = self.dataloaders[self.center]["val"]
         self.test_data = self.dataloaders[self.center]["test"]
 
         # For CoxPH model:
-        # self.fitted_model = None # holds the trained lifelines.CoxPHFitter model after training
-        # # For deep models: 
-        # self.weights = None
-        # self.local_beta = None
+        self.local_beta = None
 
     def get_parameters(self, config=None):
-        #"""Return model parameters (fixed effects coefficients)."""
-        #return self.model.get_coefficients()
-        """Return model parameters depending on model type."""
+        """Return model parameters."""
+        import numpy as np
+        import logging
+        logger = logging.getLogger(__name__)
+
         if self.config.model.lower() == "coxph":
             if self.model is not None:
-                # Return parameters aligned with the global feature list
-                params = self.model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0)
-                return [params.values]
-            else: 
-                # Return zeros for all feature columns
-                return [np.zeros(len(ALL_FEATURE_COLUMNS))]
-        else: # TO DO
-            # Deep models should implement get_weights()
-            return self.model.get_weights()
+                params = self.model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0).values
+                logger.info(f"[Client {self.cid}] get_parameters(): returning model params "
+                            f"shape={params.shape}, mean={np.mean(params):.6f}, std={np.std(params):.6f}")
+                return [params.astype(np.float64)]
+            elif hasattr(self, "local_beta") and self.local_beta is not None:
+                beta = np.array(self.local_beta, dtype=np.float64)
+                logger.info(f"[Client {self.cid}] get_parameters(): returning stored local_beta "
+                            f"shape={beta.shape}, mean={np.mean(beta):.6f}, std={np.std(beta):.6f}")
+                return [beta]
+            else:
+                zeros = np.zeros(len(ALL_FEATURE_COLUMNS), dtype=np.float64)
+                logger.info(f"[Client {self.cid}] get_parameters(): returning zeros "
+                            f"shape={zeros.shape}")
+                return [zeros]
+        else: # For SLR and other models
+            params = self.model.get_params()
+            logger.info(f"[Client {self.cid}] get_parameters(): non-Cox model params, len={len(params)}")
+            return params
 
     def set_parameters(self, parameters):
-        # """Set model parameters (fixed effects coefficients)."""
-        # self.model.beta = parameters[0]
+        """Receive parameters from server and store for initialization."""
+        import numpy as np
+        import logging
+        logger = logging.getLogger(__name__)
+
         if self.config.model.lower() == "coxph":
-            # Lifelines CoxPHFitter does not allow direct coefficient injection
-            if parameters:
-                self.local_beta = parameters[0]
-            else:
+            if parameters is None or len(parameters) == 0:
                 self.local_beta = None
-        else: # TO DO
-            # Deep model parameters
-            self.model.set_weights(parameters)
+                logger.warning(f"[Client {self.cid}] set_parameters(): received empty parameters!")
+                return
+
+            beta = np.array(parameters[0], dtype=np.float64)
+            self.local_beta = beta
+            logger.info(f"[Client {self.cid}] set_parameters(): received β shape={beta.shape}, "
+                        f"mean={np.mean(beta):.6f}, std={np.std(beta):.6f}")
+        else: # For SLR and other models
+            self.model.set_params(parameters)
+            logger.info(f"[Client {self.cid}] set_parameters(): non-Cox model params set")
 
     def fit(self, parameters, config):
-        """Train the model on local data using the generic train function."""
-        self.set_parameters(parameters)
-        
-        if self.config.model.lower() == "coxph":
-            # Train CoxPH on DataFrame
-            fitted_model = self.model_fn(
-                self.train_data,
-                config=self.config,
-                client_id=self.cid,
-                duration_col="time",
-                event_col="event",
-                init_params=self.local_beta,
-            )
-            self.model = fitted_model
-            
-            logging.info(
-                f"[Client {self.cid}] β mean={self.model.params_.mean():.4f}, "
-                f"std={self.model.params_.std():.4f}, "
-                f"min={self.model.params_.min():.4f}, "
-                f"max={self.model.params_.max():.4f}"
-            )
-        else: # TO DO
-            # Train deep survival model
-            train_model(self.model, self.train_data, self.val_data, self.config)
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[Client {self.cid}] fit(): starting local training")
 
-        num_examples = len(self.train_data)
-        return self.get_parameters(), num_examples, {}
+        try:
+            self.set_parameters(parameters)
+
+            if self.config.model.lower() == "coxph":
+                if self.local_beta is not None:
+                    logger.info(f"[Client {self.cid}] fit(): received β mean={np.mean(self.local_beta):.6f}")
+                
+                fitted_model = self.model_fn(
+                    self.train_data,
+                    config=self.config,
+                    client_id=self.cid,
+                    duration_col="time",
+                    event_col="event",
+                    init_params=self.local_beta,
+                )
+                self.model = fitted_model
+                params = self.model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0).values
+                logger.info(f"[Client {self.cid}] fit(): trained β mean={np.mean(params):.6f}, std={np.std(params):.6f}")
+                return [params], len(self.train_data), {}
+            
+            elif self.config.model.lower() == "slr":
+                X_train = self.train_data.drop(columns=["time", "event"])
+                y_train = self.train_data[["time", "event"]]
+                
+                self.model.fit(X_train, y_train)
+                
+                params = self.model.get_params()
+                return params, len(X_train), {}
+
+            else:
+                raise NotImplementedError(f"Fit not implemented for model {self.config.model}")
+
+        except Exception as e:
+            logger.error(f"[Client {self.cid}] fit(): Exception {e}")
+            logger.error(traceback.format_exc())
+            # Return empty parameters and 0 samples to indicate failure
+            if self.config.model.lower() == "coxph":
+                return [np.zeros(len(ALL_FEATURE_COLUMNS))], 0, {}
+            else:
+                # For SLR, we need to know the shape of the parameters
+                # This is a simplification. A more robust solution would be needed.
+                return [np.zeros((1, self.train_data.shape[1] - 2))], 0, {}
+
 
     def evaluate(self, parameters, config):
-        """Evaluate the model on local test data using the generic evaluate function."""
+        """Evaluate the model on local test data."""
         self.set_parameters(parameters)
 
         if self.config.model.lower() == "coxph":
-            # In evaluation, we want to use the global model parameters.
-            # We create a temporary model and fit it with the global parameters as an initial point.
             eval_model = self.model_fn(
                 self.train_data,
                 config=self.config,
@@ -150,7 +186,6 @@ class FederatedCoxClient(NumPyClient):
                 event_col="event",
                 init_params=self.local_beta,
             )
-
             metrics = evaluate_model(
                 eval_model,
                 self.test_data,
@@ -158,16 +193,23 @@ class FederatedCoxClient(NumPyClient):
                 train_data=self.train_data,
                 client_id=self.cid,
             )
-        else:
+        
+        elif self.config.model.lower() == "slr":
             if self.model is None:
-                raise RuntimeError("Deep model is None at evaluation!")
+                raise RuntimeError("SLR model is None at evaluation!")
+            
             metrics = evaluate_model(self.model, self.test_data, self.config, train_data=self.train_data)
 
+        else:
+            raise NotImplementedError(f"Evaluate not implemented for model {self.config.model}")
+
         num_examples = len(self.test_data)
-        loss = 0.0
+        loss = 0.0  # We don't have a standard loss for CoxPH/SLR in this context
         return loss, num_examples, metrics
 
     def get_random_effect(self):
         """Return the local random effect."""
-        return self.model.get_random_effect()
+        if self.config.model.lower() == "coxph":
+            return self.model.get_random_effect()
+        return None
 
