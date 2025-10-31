@@ -8,8 +8,10 @@ import logging
 from utils import train_model, evaluate_model
 from Models.CustomCoxModel import CustomCoxModel
 from Models.StackedLogisticRegression import StackedLogisticRegression
+from sklearn.linear_model import LogisticRegression
 import numpy as np
 import pandas as pd
+from flwr.common import ndarrays_to_parameters, parameters_to_ndarrays
 
 # class FLClient(NumPyClient):
 #     def __init__(self, model, dataset_manager, config):
@@ -80,31 +82,49 @@ class FederatedCoxClient(NumPyClient):
 
 
     def get_parameters(self, config=None):
-        """Return model parameters."""
-        import numpy as np
-        import logging
-        logger = logging.getLogger(__name__)
+        """Return model parameters as a Flower Parameters object."""
+        # Ensure model exists and is fitted
+        if not hasattr(self, "model") or not getattr(self.model, "fitted", False):
+            n_features = self.train_data.shape[1] - 1  # exclude event column
+            self.logger.info(
+                f"[Client {self.cid}] get_parameters: model not fitted, returning zero params for {n_features} features."
+            )
+            zeros = [np.zeros((1, n_features), dtype=np.float32), np.zeros(1, dtype=np.float32)]
+            return zeros
 
-        if hasattr(self.model, "coef_") and hasattr(self.model, "intercept_"):
-            return [self.model.coef_.astype(np.float64), self.model.intercept_.astype(np.float64)]
+        # Extract coefficients/intercept from sklearn model
+        coef = self.model.model.coef_.astype(np.float32)
+        intercept = self.model.model.intercept_.astype(np.float32)
 
-        # If model not yet fitted, initialize zeros with correct shape
-        n_features = getattr(self, "n_features_in_", None)
-        if n_features is None:
-            n_features = 39  # fallback if not known
-        return [np.zeros((1, n_features), dtype=np.float64), np.zeros(1, dtype=np.float64)]
+        self.logger.info(
+            f"[Client {self.cid}] get_parameters: mean={coef.mean():.6f}, std={coef.std():.6f}"
+        )
+
+        return [coef, intercept]
 
     def set_parameters(self, parameters):
-        """Receive parameters from server and store for initialization."""
-        import numpy as np
-        import logging
-        logger = logging.getLogger(__name__)
+        """Receive global parameters from the server and load into local model."""
+        from flwr.common import Parameters
 
-        self.model.coef_ = np.array(parameters[0], dtype=np.float64)
-        self.model.intercept_ = np.array(parameters[1], dtype=np.float64)
-        self.model.classes_ = np.array([0, 1])  # Needed by sklearn for predict_proba
-        self.fitted = True
+        # Convert Flower Parameters to NumPy arrays if needed
+        if isinstance(parameters, Parameters):
+            ndarrays = parameters_to_ndarrays(parameters)
+        else:
+            ndarrays = parameters
 
+        coef, intercept = ndarrays
+        if not hasattr(self.model, "model"):
+            self.model.model = LogisticRegression(warm_start=True, solver="liblinear")
+
+        # Load parameters into model
+        self.model.model.coef_ = coef.reshape(1, -1)
+        self.model.model.intercept_ = intercept.reshape(1,)
+        self.model.model.classes_ = np.array([0, 1])
+        self.model.fitted = True
+
+        self.logger.info(
+            f"[Client {self.cid}] set_parameters: loaded weights mean={coef.mean():.6f}, std={coef.std():.6f}"
+        )
 
     def fit(self, parameters, config):
         import traceback
@@ -128,9 +148,14 @@ class FederatedCoxClient(NumPyClient):
                     init_params=self.local_beta,
                 )
                 self.model = fitted_model
-                params = self.model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0).values
-                logger.info(f"[Client {self.cid}] fit(): trained β mean={np.mean(params):.6f}, std={np.std(params):.6f}")
-                return [params], len(self.train_data), {}
+                params = [
+                    self.model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0).values.astype(np.float32)
+                ]
+
+                logger.info(
+                    f"[Client {self.cid}] fit(): trained β mean={np.mean(params[0]):.6f}, std={np.std(params[0]):.6f}"
+                )
+                return params, len(self.train_data), {}
             
             elif self.config.model.lower() == "slr":
                 X_train = self.train_data.drop(columns=["event"])
@@ -154,11 +179,11 @@ class FederatedCoxClient(NumPyClient):
                     f"std={self.model.model.coef_.std():.6f}"
                 )
 
-                # --- Return new parameters to Flower ---
-                params = self.model.get_params()
+                params = [
+                    self.model.model.coef_.astype(np.float32),
+                    self.model.model.intercept_.astype(np.float32),
+                ]
                 return params, len(X_train), {}
-
-
 
             else:
                 raise NotImplementedError(f"Fit not implemented for model {self.config.model}")
@@ -166,13 +191,13 @@ class FederatedCoxClient(NumPyClient):
         except Exception as e:
             logger.error(f"[Client {self.cid}] fit(): Exception {e}")
             logger.error(traceback.format_exc())
-            # Return empty parameters and 0 samples to indicate failure
-            if self.config.model.lower() == "coxph":
-                return [np.zeros(len(ALL_FEATURE_COLUMNS))], 0, {}
-            else:
-                # For SLR, we need to know the shape of the parameters
-                # This is a simplification. A more robust solution would be needed.
-                return [np.zeros((1, self.train_data.shape[1] - 2))], 0, {}
+
+            n_features = self.train_data.shape[1] - 2
+            empty_params = [
+                np.zeros((1, n_features), dtype=np.float32),
+                np.zeros(1, dtype=np.float32),
+            ]
+            return empty_params, 0, {}
 
 
     def evaluate(self, parameters, config):

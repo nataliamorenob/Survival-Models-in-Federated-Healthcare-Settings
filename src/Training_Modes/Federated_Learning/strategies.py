@@ -71,6 +71,12 @@ class DebugFedAvg(FedAvg):
 
         logger.info(f"[Server] Aggregation done for round {server_round}\n")
         return aggregated_parameters
+    def evaluate(self, server_round, parameters):
+        """Skip evaluation at round 0 to avoid NotFittedError."""
+        if server_round == 0:
+            print("[Server] Skipping evaluation for round 0 (model not trained yet).")
+            return None  # No evaluation result
+        return super().evaluate(server_round, parameters)
 
 
 def get_strategy(strategy_name: str, **kwargs):
