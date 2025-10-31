@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
@@ -11,47 +10,23 @@ class StackedLogisticRegression:
         self.scaler = StandardScaler()
         self.time_bins = None
 
-    def _transform_data(self, X, y, time_bins):
-        """
-        Transforms survival data into a classification-style dataset.
-        For each patient and each time bin, we create a row.
-        The target is 1 if the patient fails in that bin, 0 otherwise.
-        """
-        X_transformed, y_transformed = [], []
-        
-        for i in range(len(X)):
-            for t_bin in time_bins:
-                # Add features
-                X_transformed.append(X.iloc[i].values)
-                
-                # Create target: 1 if event happened in this bin, 0 otherwise
-                event_in_bin = 1 if y["time"].iloc[i] <= t_bin and y["event"].iloc[i] == 1 else 0
-                y_transformed.append(event_in_bin)
-
-        return pd.DataFrame(X_transformed, columns=X.columns), pd.Series(y_transformed)
-
     def fit(self, X, y):
         """
         Fit the stacked logistic regression model.
+        Assumes X and y are already transformed.
         """
-        # Discretize time into bins
-        self.time_bins = np.quantile(y[y["event"] == 1]["time"], q=np.linspace(0.1, 1, 10)).unique()
-
-        # Transform data
-        X_train, y_train = self._transform_data(X, y, self.time_bins)
-
         # Scale features
-        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_scaled = self.scaler.fit_transform(X)
 
         # Fit logistic regression
-        self.model.fit(X_train_scaled, y_train)
+        self.model.fit(X_scaled, y)
 
     def predict_survival_function(self, X, times):
         """
         Predict survival probabilities for given times.
         """
         if self.time_bins is None:
-            raise ValueError("The model must be fitted before prediction.")
+            raise ValueError("Time bins must be set before prediction.")
 
         # Scale features
         X_scaled = self.scaler.transform(X)
@@ -79,10 +54,11 @@ class StackedLogisticRegression:
         """
         Return the coefficients of the logistic regression model.
         """
-        return self.model.coef_
+        return [self.model.coef_, self.model.intercept_]
 
     def set_params(self, params):
         """
-        Set the coefficients of the logistic regression model.
+        Set the coefficients and intercept of the logistic regression model.
         """
-        self.model.coef_ = params
+        self.model.coef_ = params[0]
+        self.model.intercept_ = params[1]
