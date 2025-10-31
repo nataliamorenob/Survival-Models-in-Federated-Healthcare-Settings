@@ -218,76 +218,103 @@ class DatasetManager:
             raise ValueError(f"Unsupported training mode: {mode}")
 
     # ----------------------------------------------------------------------
-    # FEDERATED LEARNING MODE
+    # FEDERATED LEARNING MODE:
     # ----------------------------------------------------------------------
     def get_federated_dataloaders(self):
+        """Prepare per-center train/val/test DataFrames for Federated Learning."""
         dataloaders = {}
         center = self.config.centers[self.client_idx]
         self.log_and_print(f"[Federated] Preparing dataset for center: {center}")
 
-        self.log_and_print(f"[Federated] Loading Fed-TCGA-BRCA center {center}...")
+        cache_path = os.path.join(self.config.cache_dir, f"center_{center}_data.pkl")
 
-        # Load Fed-TCGA-BRCA data
+        # If cached version exists, load it instead of rebuilding
+        if os.path.exists(cache_path):
+            self.log_and_print(f"[Federated] Using cached dataset for center {center} → {cache_path}")
+            dataloaders = pd.read_pickle(cache_path)
+            return dataloaders
+
+        # Otherwise, load Fed-TCGA-BRCA data:
+        self.log_and_print(f"[Federated] Loading Fed-TCGA-BRCA center {center}...")
         train_ds = FedTcgaBrca(center=center, train=True)
         test_ds = FedTcgaBrca(center=center, train=False)
         self.log_and_print(f"[Center {center}] train={len(train_ds)}, test={len(test_ds)}", "info")
 
-        # Convert datasets to DataFrames
+        # Convert to DataFrames:
         df_train = self._to_dataframe(train_ds)
         df_test = self._to_dataframe(test_ds)
-        self.log_and_print(f"[Center {center}] Converted to DataFrame shape train={df_train.shape}, test={df_test.shape}", "info")
+        self.log_and_print(
+            f"[Center {center}] DataFrames built — train={df_train.shape}, test={df_test.shape}", "info"
+        )
+        self._log_data_preview(df_train, df_test, center)
 
-        # -------------------- Remove zero-variance features --------------------
-        feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
-        variances = df_train[feature_cols].var()
-        zero_var_cols = variances[variances == 0].index.tolist()
-
-        if zero_var_cols:
-            self.log_and_print(f"[Center {center}] Removing {len(zero_var_cols)} zero-variance features: {zero_var_cols}", "warning")
-            df_train = df_train.drop(columns=zero_var_cols)
-            df_test = df_test.drop(columns=zero_var_cols)
-            self.log_and_print(f"[Center {center}] New DataFrame shape train={df_train.shape}, test={df_test.shape}", "info")
-        
-        # Store the columns that were actually used for training
-        final_feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
-
-        # -------------------- Normalize age (feature_0) --------------------
+        # Normalize age (feature_0):
         if "feature_0" in df_train.columns:
             age_mean = df_train["feature_0"].mean()
             age_std = df_train["feature_0"].std()
             if age_std == 0:
                 age_std = 1.0
+
             for df in [df_train, df_test]:
                 df["feature_0"] = (df["feature_0"] - age_mean) / age_std
 
             self.log_and_print(
-                f"[Center {center}] Normalized age (feature_0) with mean={age_mean:.2f}, std={age_std:.2f}"
+                f"[Center {center}] Normalized feature_0 (age): mean={age_mean:.2f}, std={age_std:.2f}"
             )
 
-        # -------------------- CoxPH model: no validation --------------------
+        # Model-specific handling:
+        
+        # CoxPH model
         if self.config.model.lower() == "coxph":
-            self.log_and_print(f"[Center {center}] Model=CoxPH → Using existing train/test only.")
-            dataloaders[center] = {
-                "train": df_train,
-                "val": None,
-                "test": df_test,
-            }
+            self.log_and_print(f"[Center {center}] Model=CoxPH → Using train/test directly.")
+            dataloaders[center] = {"train": df_train, "val": None, "test": df_test}
+
+        # Stacked Logistic Regression (SLR) model
+        elif self.config.model.lower() == "slr":
+            self.log_and_print(f"[Center {center}] Model=SLR → Performing stacking transformation.")
+            df_train_stacked = self._stack_data(df_train, center=center, split="train")
+            df_test_stacked = self._stack_data(df_test, center=center, split="test")
+
+            self.log_and_print(
+                f"[Center {center}] After stacking: train={df_train_stacked.shape}, test={df_test_stacked.shape}"
+            )
+
+            dataloaders[center] = {"train": df_train_stacked, "val": None, "test": df_test_stacked}
+
+        # Deep models 
         else:
-            # -------------------- Deep models: create validation split --------------------
-            self.log_and_print(f"[Center {center}] Splitting training data into 80% train / 20% val ...")
+            self.log_and_print(
+                f"[Center {center}] Splitting training data into 80% train / 20% val ..."
+            )
             df_train_split, df_val = self._split_train_val(df_train, center)
-
-            # Apply same age normalization to validation
             df_val["feature_0"] = (df_val["feature_0"] - age_mean) / age_std
+            dataloaders[center] = {"train": df_train_split, "val": df_val, "test": df_test}
 
-            dataloaders[center] = {
-                "train": df_train_split,
-                "val": df_val,
-                "test": df_test,
-            }
+         # DEBUG: Save processed data to CSV for inspection
+        try:
+            # Define output directory (already created by init_logging)
+            output_dir = self.config.experiment_dir
 
-        self.log_and_print(f"[Federated] Center {center} processed successfully ✅")
+            # Determine which DataFrames exist for this center
+            data_dict = dataloaders[center]
+
+            for split_name, df_split in data_dict.items():
+                if df_split is not None:
+                    csv_path = os.path.join(
+                        output_dir, f"center_{center}_{split_name}.csv"
+                    )
+                    df_split.to_csv(csv_path, index=False)
+                    self.log_and_print(f"[Center {center}] Saved {split_name} data to {csv_path}")
+        except Exception as e:
+            self.log_and_print(f"[Center {center}] Failed to save debug CSVs: {e}", "warning")
+            
+        pd.to_pickle(dataloaders, cache_path)
+        self.log_and_print(f"[Federated] Cached dataset saved for center {center} → {cache_path}")
+
+
+        self.log_and_print(f"[Federated] Center {center} processed successfully")
         return dataloaders
+
 
     # ----------------------------------------------------------------------
     # LOCAL TRAINING MODE (single center)
@@ -383,3 +410,55 @@ class DatasetManager:
             "info",
         )
         return df_train_split, df_val
+
+    def _stack_data(self, df, center=None, split=""):
+        """
+        Create a stacked dataset for logistic regression survival modeling.
+        Each patient is repeated for each time up to their observed time.
+        Binary label = 1 if event occurred at that time, else 0.
+        """
+        self.log_and_print(f"[Center {center}] [{split}] Starting stacking... input rows={len(df)}", "info")
+
+        stacked_rows = []
+        for _, row in df.iterrows():
+            time = int(row["time"])
+            event = int(row["event"])
+            features = row[[c for c in df.columns if c.startswith("feature_")]].values
+            for t in range(1, time + 1):
+                label = 1 if (t == time and event == 1) else 0
+                stacked_rows.append(np.concatenate([features, [label]]))
+
+        stacked_df = pd.DataFrame(
+            stacked_rows,
+            columns=[c for c in df.columns if c.startswith("feature_")] + ["event"]
+        )
+
+        # Log summary info
+        self.log_and_print(f"[Center {center}] [{split}] Finished stacking — output rows={len(stacked_df)}", "info")
+        self.log_and_print(f"[Center {center}] [{split}] Event counts after stacking:\n{stacked_df['event'].value_counts().to_dict()}")
+        self.log_and_print(f"[Center {center}] [{split}] Example rows:\n{stacked_df.head(5).to_string(index=False)}", "debug")
+
+        return stacked_df
+
+    def _log_data_preview(self, df_train, df_test, center):
+        """Helper to log basic dataset statistics and a few example rows."""
+        try:
+            self.log_and_print(f"[Center {center}] ── TRAIN STATS ──", "info")
+            self.log_and_print(f"  → Shape: {df_train.shape}")
+            self.log_and_print(f"  → Event counts: {df_train['event'].value_counts().to_dict()}")
+            self.log_and_print(
+                f"  → Time stats: min={df_train['time'].min():.1f}, "
+                f"max={df_train['time'].max():.1f}, mean={df_train['time'].mean():.1f}"
+            )
+            self.log_and_print(f"  → Example rows:\n{df_train.head(3).to_string(index=False)}")
+
+            self.log_and_print(f"[Center {center}] ── TEST STATS ──", "info")
+            self.log_and_print(f"  → Shape: {df_test.shape}")
+            self.log_and_print(f"  → Event counts: {df_test['event'].value_counts().to_dict()}")
+            self.log_and_print(
+                f"  → Time stats: min={df_test['time'].min():.1f}, "
+                f"max={df_test['time'].max():.1f}, mean={df_test['time'].mean():.1f}"
+            )
+            self.log_and_print(f"  → Example rows:\n{df_test.head(3).to_string(index=False)}")
+        except Exception as e:
+            self.log_and_print(f"[Center {center}] ⚠️ Failed to log data preview: {e}", "warning")

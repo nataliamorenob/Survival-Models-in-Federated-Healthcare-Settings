@@ -58,7 +58,7 @@ import pandas as pd
 from config import ALL_FEATURE_COLUMNS
 
 class FederatedCoxClient(NumPyClient):
-    def __init__(self, cid, name, model, dataset_manager, config):
+    def __init__(self, cid, name, model, dataset_manager, config, dataloaders):
         self.cid = cid
         self.name = name
         self.model_fn = model # model constructor/function (CoxPH_model)
@@ -67,7 +67,8 @@ class FederatedCoxClient(NumPyClient):
         self.config = config
 
         # Load data using dataset_manager:
-        self.dataloaders = self.dataset_manager.get_federated_dataloaders()
+        #self.dataloaders = self.dataset_manager.get_federated_dataloaders()
+        self.dataloaders = dataloaders
         self.center = list(self.dataloaders.keys())[0]  
         self.train_data = self.dataloaders[self.center]["train"]
         self.val_data = self.dataloaders[self.center]["val"]
@@ -75,6 +76,8 @@ class FederatedCoxClient(NumPyClient):
 
         # For CoxPH model:
         self.local_beta = None
+        self.logger = logging.getLogger("main")
+
 
     def get_parameters(self, config=None):
         """Return model parameters."""
@@ -82,26 +85,14 @@ class FederatedCoxClient(NumPyClient):
         import logging
         logger = logging.getLogger(__name__)
 
-        if self.config.model.lower() == "coxph":
-            if self.model is not None:
-                params = self.model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0).values
-                logger.info(f"[Client {self.cid}] get_parameters(): returning model params "
-                            f"shape={params.shape}, mean={np.mean(params):.6f}, std={np.std(params):.6f}")
-                return [params.astype(np.float64)]
-            elif hasattr(self, "local_beta") and self.local_beta is not None:
-                beta = np.array(self.local_beta, dtype=np.float64)
-                logger.info(f"[Client {self.cid}] get_parameters(): returning stored local_beta "
-                            f"shape={beta.shape}, mean={np.mean(beta):.6f}, std={np.std(beta):.6f}")
-                return [beta]
-            else:
-                zeros = np.zeros(len(ALL_FEATURE_COLUMNS), dtype=np.float64)
-                logger.info(f"[Client {self.cid}] get_parameters(): returning zeros "
-                            f"shape={zeros.shape}")
-                return [zeros]
-        else: # For SLR and other models
-            params = self.model.get_params()
-            logger.info(f"[Client {self.cid}] get_parameters(): non-Cox model params, len={len(params)}")
-            return params
+        if hasattr(self.model, "coef_") and hasattr(self.model, "intercept_"):
+            return [self.model.coef_.astype(np.float64), self.model.intercept_.astype(np.float64)]
+
+        # If model not yet fitted, initialize zeros with correct shape
+        n_features = getattr(self, "n_features_in_", None)
+        if n_features is None:
+            n_features = 39  # fallback if not known
+        return [np.zeros((1, n_features), dtype=np.float64), np.zeros(1, dtype=np.float64)]
 
     def set_parameters(self, parameters):
         """Receive parameters from server and store for initialization."""
@@ -109,19 +100,11 @@ class FederatedCoxClient(NumPyClient):
         import logging
         logger = logging.getLogger(__name__)
 
-        if self.config.model.lower() == "coxph":
-            if parameters is None or len(parameters) == 0:
-                self.local_beta = None
-                logger.warning(f"[Client {self.cid}] set_parameters(): received empty parameters!")
-                return
+        self.model.coef_ = np.array(parameters[0], dtype=np.float64)
+        self.model.intercept_ = np.array(parameters[1], dtype=np.float64)
+        self.model.classes_ = np.array([0, 1])  # Needed by sklearn for predict_proba
+        self.fitted = True
 
-            beta = np.array(parameters[0], dtype=np.float64)
-            self.local_beta = beta
-            logger.info(f"[Client {self.cid}] set_parameters(): received β shape={beta.shape}, "
-                        f"mean={np.mean(beta):.6f}, std={np.std(beta):.6f}")
-        else: # For SLR and other models
-            self.model.set_params(parameters)
-            logger.info(f"[Client {self.cid}] set_parameters(): non-Cox model params set")
 
     def fit(self, parameters, config):
         import traceback
@@ -150,13 +133,32 @@ class FederatedCoxClient(NumPyClient):
                 return [params], len(self.train_data), {}
             
             elif self.config.model.lower() == "slr":
-                X_train = self.train_data.drop(columns=["time", "event"])
-                y_train = self.train_data[["time", "event"]]
-                
+                X_train = self.train_data.drop(columns=["event"])
+                y_train = self.train_data["event"]
+
+                # --- Defensive logging before training ---
+                if hasattr(self.model.model, "coef_"):
+                    self.logger.info(
+                        f"[Client {self.cid}] Fit called — existing weights mean={self.model.model.coef_.mean():.6f}, "
+                        f"std={self.model.model.coef_.std():.6f}"
+                    )
+                else:
+                    self.logger.info(f"[Client {self.cid}] Fit called — model uninitialized (first round).")
+
+                # --- Local training ---
                 self.model.fit(X_train, y_train)
-                
+
+                # --- Log new weights after training ---
+                self.logger.info(
+                    f"[Client {self.cid}] Model coef (after fit): mean={self.model.model.coef_.mean():.6f}, "
+                    f"std={self.model.model.coef_.std():.6f}"
+                )
+
+                # --- Return new parameters to Flower ---
                 params = self.model.get_params()
                 return params, len(X_train), {}
+
+
 
             else:
                 raise NotImplementedError(f"Fit not implemented for model {self.config.model}")
@@ -195,10 +197,14 @@ class FederatedCoxClient(NumPyClient):
             )
         
         elif self.config.model.lower() == "slr":
-            if self.model is None:
-                raise RuntimeError("SLR model is None at evaluation!")
-            
+            X_test = self.test_data.drop(columns=["event"])
+            y_test = self.test_data["event"]
+
+            hazards = self.model.predict_hazard(X_test)
+
+            # Compute metrics externally (C-Index, IBS, AUC)
             metrics = evaluate_model(self.model, self.test_data, self.config, train_data=self.train_data)
+            return 0.0, len(X_test), metrics
 
         else:
             raise NotImplementedError(f"Evaluate not implemented for model {self.config.model}")

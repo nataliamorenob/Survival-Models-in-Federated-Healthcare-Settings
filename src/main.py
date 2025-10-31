@@ -18,10 +18,12 @@ from Training_Modes.Federated_Learning.strategies import get_strategy
 print("DEBUG: reached end of import section successfully")
 
 
-# Configure logging for experiments:
+
 def init_logging(config):
     # Debugging: Print the experiment directory and ID
     logger = logging.getLogger("main")
+    if logger.hasHandlers():
+        return logger  # Avoid re-adding handlers
 
     # Ensure the directory is created
     os.makedirs(config.experiment_dir, exist_ok=True)
@@ -50,33 +52,29 @@ def main(config: Config):
 
     # Check training mode and proceed accordingly:
     if config.training_mode == "federated": # Federated Learning Simulation
-
         def client_fn(cid: str):
-            for handler in logging.root.handlers[:]:
-                logging.root.removeHandler(handler)
-
-            # This function will be executed in a separate process for each client.
             init_logging(config)
-            
             cid_int = int(cid)
-            client_name = config.centers[cid_int]
 
-            # Create the dataset manager for this client
+            # Load cached data
             dm = DatasetManager(config=config, client_idx=cid_int)
+            dataloaders = dm.get_federated_dataloaders()
 
-            # Initialize model with ModelManager
+            # Build model
             model_manager = ModelManager(config)
             model_manager.initialize_model()
             model = model_manager.get_model()
 
-            # Create the Flower client
+            # Return client
             return FederatedCoxClient(
                 cid=cid_int,
-                name=client_name,
-                model=model, # CoxPH_model function (inside the CoxPHFitter + fit())
+                name=config.centers[cid_int],
+                model=model,
                 config=config,
-                dataset_manager=dm # data for this client (center)
+                dataset_manager=None,
+                dataloaders=dataloaders
             ).to_client()
+
 
         strategy = get_strategy(config.strategy)
         logger.info("Starting Federated Learning simulation...")
@@ -101,7 +99,7 @@ def main(config: Config):
 if __name__ == "__main__":
     # Define user-specific configuration
     user_config = Config(
-        model="CoxPH",
+        model="SLR",
         centers=[0, 1, 2],
         training_mode="federated",
         num_clients=3,

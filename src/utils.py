@@ -15,7 +15,9 @@ from Models.CustomCoxModel import CustomCoxModel
 # Import metrics from lifelines and scikit-survival
 from lifelines.utils import concordance_index
 from sksurv.metrics import brier_score, cumulative_dynamic_auc
+from sklearn.metrics import roc_auc_score
 from lifelines import CoxPHFitter
+from Models.StackedLogisticRegression import StackedLogisticRegression
 
 def train_model(
     model: Any,
@@ -58,6 +60,11 @@ def evaluate_model(
     elif isinstance(model, CoxPHFitter):
         logging.info("Dispatching to Lifelines CoxPHFitter evaluation.")
         return _evaluate_lifelines_cox(model, test_data, config, train_data=train_data, description="Test", client_id=client_id)
+    elif isinstance(model, StackedLogisticRegression):
+        logging.info("Dispatching to StackedLogisticRegression evaluation.")
+        return _evaluate_stacked_logistic(
+            model, test_data, config, train_data=train_data, description="Test", client_id=client_id
+        )
     else:
         raise TypeError(f"Unsupported model type for evaluation: {type(model)}")
 
@@ -462,3 +469,73 @@ def _evaluate_pytorch_model(
     logging.info(f"Test Results | MSE={avg_mse:.6f}, MAE={avg_mae:.6f}")
 
     return {"test_mse": avg_mse, "test_mae": avg_mae}
+
+
+
+
+def _evaluate_stacked_logistic(model, data, config, train_data=None, description="Evaluation", client_id=None):
+    """
+    Evaluate the Stacked Logistic Regression model using:
+      - C-index (based on predicted hazard)
+      - AUC (simple binary classification AUC)
+      - IBS-like score (approximation)
+    """
+    client_tag = f"[Client {client_id}] " if client_id is not None else ""
+    logging.info(f"{client_tag}Evaluating Stacked Logistic Regression model on {description} data...")
+    logging.info("────────────────────────────────────────────────────────")
+    logging.info(f"{client_tag} SLR Evaluation Results ({description})")
+    logging.info("────────────────────────────────────────────────────────")
+
+    # --- 1. Extract features and labels ---
+    feature_cols = [c for c in data.columns if c.startswith("feature_")]
+    X_test = data[feature_cols]
+    y_test = data["event"].astype(int).values
+
+    # --- 2. Predict hazard probabilities ---
+    try:
+        hazard_pred = model.predict_hazard(X_test)
+        logging.info(f"[{description}] Predicted hazard probabilities shape: {hazard_pred.shape}")
+    except Exception as e:
+        logging.warning(f"Failed to compute hazard predictions: {e}")
+        hazard_pred = np.zeros_like(y_test, dtype=float)
+
+    # --- 3. Concordance Index ---
+    # Since no survival times are used in SLR directly, we treat hazard_pred as risk score.
+    try:
+        # pseudo-time ordering if available
+        if "time" in data.columns:
+            times = data["time"].values
+        else:
+            times = np.arange(len(y_test))
+        c_index_test = concordance_index(times, -hazard_pred, y_test)
+        logging.info(f"[{description}] C-index: {c_index_test:.6f}")
+    except Exception as e:
+        logging.warning(f"Failed to compute C-index: {e}")
+        c_index_test = np.nan
+
+    # --- 4. Classic AUC ---
+    try:
+        auc_test = roc_auc_score(y_test, hazard_pred)
+        logging.info(f"[{description}] AUC (classification): {auc_test:.6f}")
+    except Exception as e:
+        logging.warning(f"Failed to compute AUC: {e}")
+        auc_test = np.nan
+
+    # --- 5. IBS-like approximation ---
+    # Since we have binary outcomes, use (hazard - event)^2 mean as a proxy
+    try:
+        ibs_like = np.mean((hazard_pred - y_test) ** 2)
+        logging.info(f"[{description}] IBS-like (MSE proxy): {ibs_like:.6f}")
+    except Exception as e:
+        logging.warning(f"Failed to compute IBS-like metric: {e}")
+        ibs_like = np.nan
+
+    logging.info(f"{client_tag}[{description}] Summary: "
+                 f"C-index={c_index_test:.4f}, AUC={auc_test:.4f}, IBS-like={ibs_like:.4f}")
+    logging.info("────────────────────────────────────────────────────────\n")
+
+    return {
+        f"{description.lower()}_c_index": float(c_index_test),
+        f"{description.lower()}_mean_auc": float(auc_test),
+        f"{description.lower()}_ibs": float(ibs_like),
+    }
