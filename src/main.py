@@ -13,7 +13,8 @@ from Training_Modes.Federated_Learning.client import FederatedCoxClient
 import flwr as fl
 from dataset_manager import DatasetManager
 from model_manager import ModelManager
-from Training_Modes.Federated_Learning.strategies import get_strategy
+#from Training_Modes.Federated_Learning.strategies import get_strategy
+from Training_Modes.Federated_Learning.strategies import CustomFedAvg
 
 print("DEBUG: reached end of import section successfully")
 
@@ -75,8 +76,17 @@ def main(config: Config):
                 dataloaders=dataloaders
             ).to_client()
 
+        
 
-        strategy = get_strategy(config.strategy)
+        strategy = CustomFedAvg(
+            fraction_fit=1.0,
+            fraction_evaluate=1.0,
+            min_fit_clients=config.num_clients,
+            min_evaluate_clients=config.num_clients,
+            min_available_clients=config.num_clients,
+        )
+
+        #strategy = get_strategy(config.strategy)
         logger.info("Starting Federated Learning simulation...")
         fl.simulation.start_simulation(
             client_fn=client_fn,

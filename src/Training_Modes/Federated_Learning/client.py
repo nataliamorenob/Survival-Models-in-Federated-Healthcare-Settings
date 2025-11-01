@@ -83,48 +83,18 @@ class FederatedCoxClient(NumPyClient):
 
     def get_parameters(self, config=None):
         """Return model parameters as a Flower Parameters object."""
-        # Ensure model exists and is fitted
-        if not hasattr(self, "model") or not getattr(self.model, "fitted", False):
-            n_features = self.train_data.shape[1] - 1  # exclude event column
-            self.logger.info(
-                f"[Client {self.cid}] get_parameters: model not fitted, returning zero params for {n_features} features."
-            )
-            zeros = [np.zeros((1, n_features), dtype=np.float32), np.zeros(1, dtype=np.float32)]
-            return zeros
-
-        # Extract coefficients/intercept from sklearn model
-        coef = self.model.model.coef_.astype(np.float32)
-        intercept = self.model.model.intercept_.astype(np.float32)
-
-        self.logger.info(
-            f"[Client {self.cid}] get_parameters: mean={coef.mean():.6f}, std={coef.std():.6f}"
-        )
-
-        return [coef, intercept]
+        return get_weights(self.model)
 
     def set_parameters(self, parameters):
         """Receive global parameters from the server and load into local model."""
-        from flwr.common import Parameters
-
-        # Convert Flower Parameters to NumPy arrays if needed
-        if isinstance(parameters, Parameters):
-            ndarrays = parameters_to_ndarrays(parameters)
+        if hasattr(parameters, "tensors"):
+            weights = parameters_to_ndarrays(parameters)
         else:
-            ndarrays = parameters
+            # Already a list of ndarrays
+            weights = parameters
 
-        coef, intercept = ndarrays
-        if not hasattr(self.model, "model"):
-            self.model.model = LogisticRegression(warm_start=True, solver="liblinear")
+        set_weights(self.model, weights)
 
-        # Load parameters into model
-        self.model.model.coef_ = coef.reshape(1, -1)
-        self.model.model.intercept_ = intercept.reshape(1,)
-        self.model.model.classes_ = np.array([0, 1])
-        self.model.fitted = True
-
-        self.logger.info(
-            f"[Client {self.cid}] set_parameters: loaded weights mean={coef.mean():.6f}, std={coef.std():.6f}"
-        )
 
     def fit(self, parameters, config):
         import traceback
@@ -161,19 +131,10 @@ class FederatedCoxClient(NumPyClient):
                 X_train = self.train_data.drop(columns=["event"])
                 y_train = self.train_data["event"]
 
-                # --- Defensive logging before training ---
-                if hasattr(self.model.model, "coef_"):
-                    self.logger.info(
-                        f"[Client {self.cid}] Fit called — existing weights mean={self.model.model.coef_.mean():.6f}, "
-                        f"std={self.model.model.coef_.std():.6f}"
-                    )
-                else:
-                    self.logger.info(f"[Client {self.cid}] Fit called — model uninitialized (first round).")
-
-                # --- Local training ---
+                # Local training:
                 self.model.fit(X_train, y_train)
 
-                # --- Log new weights after training ---
+                # Log new weights after training:
                 self.logger.info(
                     f"[Client {self.cid}] Model coef (after fit): mean={self.model.model.coef_.mean():.6f}, "
                     f"std={self.model.model.coef_.std():.6f}"
@@ -234,9 +195,6 @@ class FederatedCoxClient(NumPyClient):
         else:
             raise NotImplementedError(f"Evaluate not implemented for model {self.config.model}")
 
-        num_examples = len(self.test_data)
-        loss = 0.0  # We don't have a standard loss for CoxPH/SLR in this context
-        return loss, num_examples, metrics
 
     def get_random_effect(self):
         """Return the local random effect."""

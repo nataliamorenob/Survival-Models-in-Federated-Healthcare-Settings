@@ -1,90 +1,65 @@
-# from flwr.server.strategy import FedAvg, FedAdam, FedAdagrad, FedYogi, FedProx
-
-# def get_strategy(strategy_name: str, **kwargs):
-#     """
-#     Returns the specified federated learning strategy.
-
-#     Parameters:
-#         strategy_name (str): The name of the strategy to use (e.g., "FedAvg", "FedAdam").
-#         **kwargs: Additional arguments to pass to the strategy.
-
-#     Returns:
-#         flwr.server.strategy.FedAvg or other strategy: The selected strategy instance.
-#     """
-#     strategies = {
-#         "FedAvg": FedAvg,
-#         "FedAdam": FedAdam,
-#         "FedAdagrad": FedAdagrad,
-#         "FedYogi": FedYogi,
-#         "FedProx": FedProx,
-#     }
-
-#     if strategy_name not in strategies:
-#         raise ValueError(f"Unsupported strategy: {strategy_name}. Supported strategies are: {list(strategies.keys())}")
-
-#     return strategies[strategy_name](**kwargs)
-
-
 import numpy as np
 import logging
 from flwr.server.strategy import FedAvg, FedAdam, FedAdagrad, FedYogi, FedProx
+from flwr.common import parameters_to_ndarrays, ndarrays_to_parameters
 
 
-class DebugFedAvg(FedAvg):
-    """Custom FedAvg strategy that logs parameter aggregation details."""
+class CustomFedAvg(FedAvg):
+    """Custom FedAvg strategy that logs and properly aggregates parameters."""
 
     def aggregate_fit(self, server_round, results, failures):
+        if not results:
+            return None, {}
+
         logger = logging.getLogger("main")
-        logger.info(f"\n[Server] ===== Round {server_round} aggregation =====")
-        logger.info(f"[Server] Received {len(results)} client results")
+        logger.info(f"[Server] Aggregating {len(results)} client results for round {server_round}...")
 
-        # Inspect one client's parameters to understand the structure
-        if results:
+        # Convert all client Parameters to numpy arrays
+        weights_results = []
+        for _, fit_res in results:
             try:
-                example_params = results[0][1].parameters.tensors
-                logger.info(f"[Server] Example parameter count: {len(example_params)}")
-
-                for i, p in enumerate(example_params[:2]):  # show first 2 arrays
-                    arr = np.frombuffer(p, dtype=np.float64)
-                    logger.info(
-                        f"[Server] Param[{i}] → mean={arr.mean():.6f}, "
-                        f"std={arr.std():.6f}, len={len(arr)}"
-                    )
-
+                ndarrays = parameters_to_ndarrays(fit_res.parameters)
+                weights_results.append(ndarrays)
             except Exception as e:
-                logger.warning(f"[Server] Could not inspect parameters: {e}")
+                logger.warning(f"[Server] Failed to parse client parameters: {e}")
 
-        # Perform standard FedAvg aggregation
-        aggregated_parameters = super().aggregate_fit(server_round, results, failures)
+        if not weights_results:
+            logger.error("[Server] No valid weights received — skipping aggregation.")
+            return None, {}
 
-        if aggregated_parameters is not None:
-            try:
-                agg_tensors = aggregated_parameters.parameters.tensors
-                if len(agg_tensors) > 0:
-                    arr = np.frombuffer(agg_tensors[0], dtype=np.float64)
-                    logger.info(
-                        f"[Server] Aggregated Param[0] → mean={arr.mean():.6f}, "
-                        f"std={arr.std():.6f}, len={len(arr)}"
-                    )
-            except Exception as e:
-                logger.warning(f"[Server] Could not log aggregated parameters: {e}")
+        # Average element-wise across clients
+        aggregated_ndarrays = [
+            np.mean([weights[i] for weights in weights_results], axis=0)
+            for i in range(len(weights_results[0]))
+        ]
 
-        logger.info(f"[Server] Aggregation done for round {server_round}\n")
-        return aggregated_parameters
-    def evaluate(self, server_round, parameters):
-        """Skip evaluation at round 0 to avoid NotFittedError."""
+        # Convert back to Flower Parameters object
+        aggregated_parameters = ndarrays_to_parameters(aggregated_ndarrays)
+
+        # Log aggregation statistics
+        means = [np.mean(arr) for arr in aggregated_ndarrays]
+        stds = [np.std(arr) for arr in aggregated_ndarrays]
+        logger.info(
+            f"[Server] Round {server_round}: aggregated weights "
+            f"mean={means}, std={stds}"
+        )
+
+        return aggregated_parameters, {}
+
+    def evaluate(self, server_round, parameters, config=None):
+        """Skip evaluation on round 0; use parent behavior otherwise."""
         if server_round == 0:
-            print("[Server] Skipping evaluation for round 0 (model not trained yet).")
-            return None  # No evaluation result
+            logging.getLogger("main").info(
+                "[Server] Skipping evaluation for round 0 (model not yet trained)."
+            )
+            return None
         return super().evaluate(server_round, parameters)
 
 
 def get_strategy(strategy_name: str, **kwargs):
-    """
-    Returns the specified federated learning strategy.
-    """
+    """Return the selected FL strategy (CustomFedAvg by default)."""
     strategies = {
-        "FedAvg": DebugFedAvg,
+        "FedAvg": CustomFedAvg,
         "FedAdam": FedAdam,
         "FedAdagrad": FedAdagrad,
         "FedYogi": FedYogi,
@@ -93,7 +68,8 @@ def get_strategy(strategy_name: str, **kwargs):
 
     if strategy_name not in strategies:
         raise ValueError(
-            f"Unsupported strategy: {strategy_name}. Supported: {list(strategies.keys())}"
+            f"Unsupported strategy: {strategy_name}. "
+            f"Supported: {list(strategies.keys())}"
         )
 
     logger = logging.getLogger("main")
