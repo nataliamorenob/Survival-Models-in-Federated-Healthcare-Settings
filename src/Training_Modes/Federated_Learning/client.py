@@ -132,7 +132,8 @@ class FederatedCoxClient(NumPyClient):
                 y_train = self.train_data["event"]
 
                 # Local training:
-                self.model.fit(X_train, y_train)
+                #self.model.fit(X_train, y_train)
+                self.model.partial_fit(X_train, y_train, classes=np.array([0, 1]))
 
                 # Log new weights after training:
                 self.logger.info(
