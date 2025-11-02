@@ -291,22 +291,22 @@ class DatasetManager:
             dataloaders[center] = {"train": df_train_split, "val": df_val, "test": df_test}
 
          # DEBUG: Save processed data to CSV for inspection
-        try:
-            # Define output directory (already created by init_logging)
-            output_dir = self.config.experiment_dir
+        # try:
+        #     # Define output directory (already created by init_logging)
+        #     output_dir = self.config.experiment_dir
 
-            # Determine which DataFrames exist for this center
-            data_dict = dataloaders[center]
+        #     # Determine which DataFrames exist for this center
+        #     data_dict = dataloaders[center]
 
-            for split_name, df_split in data_dict.items():
-                if df_split is not None:
-                    csv_path = os.path.join(
-                        output_dir, f"center_{center}_{split_name}.csv"
-                    )
-                    df_split.to_csv(csv_path, index=False)
-                    self.log_and_print(f"[Center {center}] Saved {split_name} data to {csv_path}")
-        except Exception as e:
-            self.log_and_print(f"[Center {center}] Failed to save debug CSVs: {e}", "warning")
+        #     for split_name, df_split in data_dict.items():
+        #         if df_split is not None:
+        #             csv_path = os.path.join(
+        #                 output_dir, f"center_{center}_{split_name}.csv"
+        #             )
+        #             df_split.to_csv(csv_path, index=False)
+        #             self.log_and_print(f"[Center {center}] Saved {split_name} data to {csv_path}")
+        # except Exception as e:
+        #     self.log_and_print(f"[Center {center}] Failed to save debug CSVs: {e}", "warning")
             
         pd.to_pickle(dataloaders, cache_path)
         self.log_and_print(f"[Federated] Cached dataset saved for center {center} → {cache_path}")
@@ -423,7 +423,8 @@ class DatasetManager:
         for _, row in df.iterrows():
             time = int(row["time"])
             event = int(row["event"])
-            features = row[[c for c in df.columns if c.startswith("feature_")]].values
+            features = row.drop(labels=["time", "event"], errors="ignore").values
+
             for t in range(1, time + 1):
                 label = 1 if (t == time and event == 1) else 0
                 stacked_rows.append(np.concatenate([features, [label]]))
@@ -437,7 +438,7 @@ class DatasetManager:
         self.log_and_print(f"[Center {center}] [{split}] Finished stacking — output rows={len(stacked_df)}", "info")
         self.log_and_print(f"[Center {center}] [{split}] Event counts after stacking:\n{stacked_df['event'].value_counts().to_dict()}")
         self.log_and_print(f"[Center {center}] [{split}] Example rows:\n{stacked_df.head(5).to_string(index=False)}", "debug")
-
+        
         return stacked_df
 
     def _log_data_preview(self, df_train, df_test, center):

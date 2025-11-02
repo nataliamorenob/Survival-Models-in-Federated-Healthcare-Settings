@@ -51,6 +51,14 @@ def main(config: Config):
 
     logger.info(f"[Global] Evaluation times set: {config.global_eval_times}")
 
+    import ray
+    ray.init(
+        _memory=2 * 1024 * 1024 * 1024,          # Limit Ray worker memory to 2GB
+        object_store_memory=512 * 1024 * 1024,   # Limit Ray object store to 512MB
+        ignore_reinit_error=True,                # Prevent errors on reinit
+        include_dashboard=False                  # Optional: disable Ray dashboard
+    )
+
     # Check training mode and proceed accordingly:
     if config.training_mode == "federated": # Federated Learning Simulation
         def client_fn(cid: str):
@@ -103,6 +111,7 @@ def main(config: Config):
             num_clients=config.num_clients, 
             config=fl.server.ServerConfig(num_rounds=config.num_rounds),
             strategy=strategy,
+            client_resources={"num_cpus": 1},  # limit each client to 1 CPU
         )
 
     elif config.training_mode == "centralized":

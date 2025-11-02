@@ -79,6 +79,7 @@ class FederatedCoxClient(NumPyClient):
         # For CoxPH model:
         self.local_beta = None
         self.logger = logging.getLogger("main")
+        self.is_first_fit = True
 
 
     def get_parameters(self, config=None):
@@ -132,8 +133,11 @@ class FederatedCoxClient(NumPyClient):
                 y_train = self.train_data["event"]
 
                 # Local training:
-                #self.model.fit(X_train, y_train)
-                self.model.partial_fit(X_train, y_train, classes=np.array([0, 1]))
+                if self.is_first_fit:
+                    self.model.partial_fit(X_train, y_train, classes=np.array([0, 1]))
+                    self.is_first_fit = False
+                else:
+                    self.model.partial_fit(X_train, y_train)
 
                 # Log new weights after training:
                 self.logger.info(

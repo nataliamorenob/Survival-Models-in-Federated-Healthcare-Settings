@@ -69,9 +69,28 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
 class StackedLogisticRegression:
-    def __init__(self, penalty="l2", C=1.0, random_state=42, solver="liblinear"):
+    def __init__(
+        self,
+        penalty="l2",
+        C=1.0,
+        random_state=42,
+        solver="liblinear",
+        max_iter=100,
+    ):
+        # Store hyperparameters
+        self.penalty = penalty
+        self.C = C
+        self.random_state = random_state
+        self.solver = solver
+        self.max_iter = max_iter
+
         self.model = LogisticRegression(
-            penalty=penalty, C=C, random_state=random_state, solver=solver, warm_start=True
+            penalty=self.penalty,
+            C=self.C,
+            random_state=self.random_state,
+            solver=self.solver,
+            max_iter=self.max_iter,
+            warm_start=True,
         )
         self.fitted = False
 
@@ -105,8 +124,29 @@ class StackedLogisticRegression:
 
 
     def set_params(self, params):
-        """Set the coefficients and intercept."""
+        """
+        Set the parameters of the underlying logistic regression model.
+        This method re-initializes the model to ensure its internal state
+        is consistent with the new parameters, which is crucial for methods
+        like partial_fit.
+        """
+        self.model = LogisticRegression(
+            penalty=self.penalty,
+            C=self.C,
+            solver=self.solver,
+            max_iter=self.max_iter,
+            warm_start=True,  # Important for partial_fit
+            random_state=self.random_state,
+        )
+        # Manually set the classes to inform the model about all possible outcomes
+        self.model.classes_ = np.array([0, 1])
+
+        # Assign the new coefficients and intercept
         self.model.coef_ = params[0]
         self.model.intercept_ = params[1]
-        self.model.classes_ = np.array([0, 1])
-        self.fitted = True
+
+        # Set the number of features seen during fit
+        self.model.n_features_in_ = self.model.coef_.shape[1]
+
+    def set_weights(self, params):
+        self.set_params(params)
