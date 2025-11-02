@@ -102,52 +102,26 @@ class FederatedCoxClient(NumPyClient):
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"[Client {self.cid}] fit(): starting local training")
-
         try:
-            self.set_parameters(parameters)
+            if self.config.model.lower() == "slr":
+  
+                self.set_parameters(parameters)
 
-            if self.config.model.lower() == "coxph":
-                if self.local_beta is not None:
-                    logger.info(f"[Client {self.cid}] fit(): received β mean={np.mean(self.local_beta):.6f}")
-                
-                fitted_model = self.model_fn(
-                    self.train_data,
-                    config=self.config,
-                    client_id=self.cid,
-                    duration_col="time",
-                    event_col="event",
-                    init_params=self.local_beta,
-                )
-                self.model = fitted_model
-                params = [
-                    self.model.params_.reindex(ALL_FEATURE_COLUMNS).fillna(0).values.astype(np.float32)
-                ]
-
-                logger.info(
-                    f"[Client {self.cid}] fit(): trained β mean={np.mean(params[0]):.6f}, std={np.std(params[0]):.6f}"
-                )
-                return params, len(self.train_data), {}
-            
-            elif self.config.model.lower() == "slr":
+                # Continue training from server weights (thanks to warm_start=True)
                 X_train = self.train_data.drop(columns=["event"])
                 y_train = self.train_data["event"]
 
-                # Local training:
-                if self.is_first_fit:
-                    self.model.partial_fit(X_train, y_train, classes=np.array([0, 1]))
-                    self.is_first_fit = False
-                else:
-                    self.model.partial_fit(X_train, y_train)
+                self.model.fit(X_train, y_train)
 
                 # Log new weights after training:
                 self.logger.info(
-                    f"[Client {self.cid}] Model coef (after fit): mean={self.model.model.coef_.mean():.6f}, "
-                    f"std={self.model.model.coef_.std():.6f}"
+                        f"[Client {self.cid}] Model coef (after fit): mean={self.model.model.coef_.mean():.6f}, "
+                        f"std={self.model.model.coef_.std():.6f}"
                 )
 
                 params = [
-                    self.model.model.coef_.astype(np.float32),
-                    self.model.model.intercept_.astype(np.float32),
+                        self.model.model.coef_.astype(np.float32),
+                        self.model.model.intercept_.astype(np.float32),
                 ]
                 return params, len(X_train), {}
 

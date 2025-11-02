@@ -1,7 +1,50 @@
-# Ignore Python cache files
-__pycache__/
-*.py[cod]
-*$py.class
-
 # ignore results folder
 results/
+
+# --- Python build and cache files ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*$py.class
+*.so
+
+# --- Virtual environments ---
+venv/
+.env/
+.env*/
+*.env/
+*/venv/
+*/.venv/
+
+# --- IDE / Editor settings ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS junk files ---
+.DS_Store
+Thumbs.db
+
+# --- Logs, checkpoints, results ---
+*.log
+*.csv
+*.pkl
+*.ckpt
+*.h5
+*.pth
+results/
+checkpoints/
+scratch/
+tmp/
+temp/
+
+# --- Data files ---
+*.npy
+*.npz
+*.pt
+*.onnx
+*.mat
+
+# --- Jupyter notebooks checkpoints ---
+.ipynb_checkpoints/

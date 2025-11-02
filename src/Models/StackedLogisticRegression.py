@@ -64,9 +64,115 @@
 #         self.model.intercept_ = params[1]
 
 
+
+
+
+# MODEL DOES NOT UPDATE THE WEIGHTS I THINK BC HOW LOGISTICREGRESSION WORKS INSIDE
+# import numpy as np
+# from sklearn.linear_model import LogisticRegression
+# from sklearn.preprocessing import StandardScaler
+
+# class StackedLogisticRegression:
+#     def __init__(
+#         self,
+#         penalty="l2",
+#         C=1.0,
+#         random_state=42,
+#         solver="liblinear",
+#         max_iter=100,
+#     ):
+#         # Store hyperparameters
+#         self.penalty = penalty
+#         self.C = C
+#         self.random_state = random_state
+#         self.solver = solver
+#         self.max_iter = max_iter
+
+#         self.model = LogisticRegression(
+#             penalty=self.penalty,
+#             C=self.C,
+#             random_state=self.random_state,
+#             solver=self.solver,
+#             max_iter=self.max_iter,
+#             warm_start=True,
+#         )
+#         self.fitted = False
+
+#     def fit(self, X, y):
+#         """Fit the logistic regression model (already stacked and binary)."""
+#         self.model.fit(X, y)
+#         self.fitted = True
+
+#     def predict_hazard(self, X):
+#         """Predict hazard probabilities for each observation."""
+#         import pandas as pd
+
+#         # Defensive check to ensure same feature count as during training
+#         if isinstance(X, pd.DataFrame):
+#             # Drop any label/time columns that shouldn't be there
+#             X = X.drop(columns=["event", "time"], errors="ignore")
+
+#         # If feature mismatch persists, auto-truncate to expected number
+#         if hasattr(self.model, "n_features_in_") and X.shape[1] != self.model.n_features_in_:
+#             X = X.iloc[:, : self.model.n_features_in_]
+
+#         preds = self.model.predict_proba(X)[:, 1]
+#         return preds
+
+
+#     def get_params(self):
+#         """Return model parameters if fitted, otherwise initialize them."""
+#         import numpy as np
+
+#         if hasattr(self.model, "coef_") and hasattr(self.model, "intercept_"):
+#             return [self.model.coef_, self.model.intercept_]
+#         else:
+#             # Model not yet fitted — initialize empty params based on input size if available
+#             n_features = getattr(self, "n_features_in_", None)
+#             if n_features is not None:
+#                 coef = np.zeros((1, n_features))
+#                 intercept = np.zeros(1)
+#             else:
+#                 # fallback for very first round
+#                 coef = np.zeros((1, 1))
+#                 intercept = np.zeros(1)
+#             return [coef, intercept]
+
+
+#     def set_params(self, params):
+#         """
+#         Update model weights (without reinitializing LogisticRegression).
+#         Ensures the model continues training from server weights.
+#         """
+#         import numpy as np
+
+#         # Ensure model exists
+#         if not hasattr(self, "model") or self.model is None:
+#             from sklearn.linear_model import LogisticRegression
+#             self.model = LogisticRegression(
+#                 penalty=self.penalty,
+#                 C=self.C,
+#                 solver=self.solver,
+#                 max_iter=self.max_iter,
+#                 warm_start=True,
+#                 random_state=self.random_state,
+#             )
+
+#         # Update existing model weights
+#         self.model.classes_ = np.array([0, 1])
+#         self.model.coef_ = params[0].copy()
+#         self.model.intercept_ = params[1].copy()
+#         self.model.n_features_in_ = self.model.coef_.shape[1]
+
+
+#     def set_weights(self, params):
+#         self.set_params(params)
+
+
+
+
+from sklearn.linear_model import SGDClassifier
 import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
 
 class StackedLogisticRegression:
     def __init__(
@@ -74,79 +180,96 @@ class StackedLogisticRegression:
         penalty="l2",
         C=1.0,
         random_state=42,
-        solver="liblinear",
         max_iter=100,
+        learning_rate="optimal",
+        eta0=0.01,
     ):
-        # Store hyperparameters
         self.penalty = penalty
         self.C = C
         self.random_state = random_state
-        self.solver = solver
         self.max_iter = max_iter
+        self.learning_rate = learning_rate
+        self.eta0 = eta0
 
-        self.model = LogisticRegression(
+        # SGDClassifier with log_loss behaves like logistic regression but supports partial_fit
+        self.model = SGDClassifier(
+            loss="log_loss",
             penalty=self.penalty,
-            C=self.C,
+            alpha=1.0 / self.C,  # inverse of C
             random_state=self.random_state,
-            solver=self.solver,
             max_iter=self.max_iter,
-            warm_start=True,
+            learning_rate=self.learning_rate,
+            eta0=self.eta0,
         )
         self.fitted = False
 
     def fit(self, X, y):
-        """Fit the logistic regression model (already stacked and binary)."""
-        self.model.fit(X, y)
-        self.fitted = True
+        import numpy as np
+        import pandas as pd
+
+        # --- make sure every feature is float32 ---
+        if isinstance(X, pd.DataFrame):
+            X = X.to_numpy(dtype=np.float32)
+        else:
+            X = np.asarray(X, dtype=np.float32)
+        y = np.asarray(y, dtype=np.int32)
+        # ------------------------------------------
+
+        if not self.fitted:
+            self.model.partial_fit(X, y, classes=np.array([0, 1]))
+            self.fitted = True
+        else:
+            self.model.partial_fit(X, y)
+
 
     def predict_hazard(self, X):
         """Predict hazard probabilities for each observation."""
-        preds = self.model.predict_proba(X)[:, 1]
-        return preds
-
-    def get_params(self):
-        """Return model parameters if fitted, otherwise initialize them."""
+        import pandas as pd
         import numpy as np
 
+        # Defensive check: drop non-feature columns if DataFrame
+        if isinstance(X, pd.DataFrame):
+            X = X.drop(columns=["event", "time"], errors="ignore")
+            X = X.to_numpy(dtype=np.float32)
+        else:
+            X = np.asarray(X, dtype=np.float32)
+
+        # If feature mismatch persists, adjust size safely
+        if hasattr(self.model, "n_features_in_") and X.shape[1] != self.model.n_features_in_:
+            X = X[:, : self.model.n_features_in_]  # use numpy slicing (not .iloc)
+
+        # Compute probabilities or fallback
+        if hasattr(self.model, "predict_proba"):
+            preds = self.model.predict_proba(X)[:, 1]
+        else:
+            preds = 1 / (1 + np.exp(-self.model.decision_function(X)))
+
+        print(f"[DEBUG] predict_hazard: X.shape={X.shape}, model expects={self.model.n_features_in_}")
+        return preds
+
+
+
+    def get_params(self):
+        """Return model parameters, initializing if model not yet trained."""
+        import numpy as np
+
+        # If model is already fitted, return weights
         if hasattr(self.model, "coef_") and hasattr(self.model, "intercept_"):
             return [self.model.coef_, self.model.intercept_]
-        else:
-            # Model not yet fitted — initialize empty params based on input size if available
-            n_features = getattr(self, "n_features_in_", None)
-            if n_features is not None:
-                coef = np.zeros((1, n_features))
-                intercept = np.zeros(1)
-            else:
-                # fallback for very first round
-                coef = np.zeros((1, 1))
-                intercept = np.zeros(1)
-            return [coef, intercept]
+
+        # If model not yet trained, initialize to correct feature size (39)
+        n_features = 39  # fixed number of features in stacked dataset
+        coef = np.zeros((1, n_features), dtype=np.float32)
+        intercept = np.zeros(1, dtype=np.float32)
+
+        return [coef, intercept]
+
 
 
     def set_params(self, params):
-        """
-        Set the parameters of the underlying logistic regression model.
-        This method re-initializes the model to ensure its internal state
-        is consistent with the new parameters, which is crucial for methods
-        like partial_fit.
-        """
-        self.model = LogisticRegression(
-            penalty=self.penalty,
-            C=self.C,
-            solver=self.solver,
-            max_iter=self.max_iter,
-            warm_start=True,  # Important for partial_fit
-            random_state=self.random_state,
-        )
-        # Manually set the classes to inform the model about all possible outcomes
+        self.model.coef_ = params[0].copy()
+        self.model.intercept_ = params[1].copy()
         self.model.classes_ = np.array([0, 1])
-
-        # Assign the new coefficients and intercept
-        self.model.coef_ = params[0]
-        self.model.intercept_ = params[1]
-
-        # Set the number of features seen during fit
+        self.fitted = True
         self.model.n_features_in_ = self.model.coef_.shape[1]
 
-    def set_weights(self, params):
-        self.set_params(params)
