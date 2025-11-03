@@ -144,7 +144,7 @@ class FederatedCoxClient(NumPyClient):
         """Evaluate the model on local test data."""
         self.set_parameters(parameters)
 
-        if self.config.model.lower() == "coxph":
+        if self.config.model.lower() == "coxph": # TO DO
             eval_model = self.model_fn(
                 self.train_data,
                 config=self.config,
@@ -165,10 +165,8 @@ class FederatedCoxClient(NumPyClient):
             X_test = self.test_data.drop(columns=["event"])
             y_test = self.test_data["event"]
 
-            hazards = self.model.predict_hazard(X_test)
-
             # Compute metrics externally (C-Index, IBS, AUC)
-            metrics = evaluate_model(self.model, self.test_data, self.config, train_data=self.train_data)
+            metrics = evaluate_model(self.model, self.test_data, self.config, train_data=self.train_data, client_id=self.cid)
             return 0.0, len(X_test), metrics
 
         else:

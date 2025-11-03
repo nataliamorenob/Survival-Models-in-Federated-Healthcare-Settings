@@ -55,6 +55,69 @@ class CustomFedAvg(FedAvg):
             return None
         return super().evaluate(server_round, parameters)
 
+    def aggregate_evaluate(self, server_round, results, failures):
+        """Aggregate evaluation metrics and log per-client + aggregated results."""
+        logger = logging.getLogger("main")
+
+        if not results:
+            logger.warning(f"[Server] No evaluation results in round {server_round}.")
+            return None, {}
+
+        # Log individual client metrics
+        logger.info(f"──────────────────────────────────────────────")
+        logger.info(f"[Server] Round {server_round} - Client Metrics:")
+        logger.info(f"──────────────────────────────────────────────")
+
+        metrics_dict = {}
+        for client_proxy, evaluate_res in results:
+            client_id = getattr(client_proxy, "cid", "Unknown")
+            metrics = evaluate_res.metrics
+
+            # Pretty print each client's metrics
+            client_name = getattr(client_proxy, "name", f"Client {client_id}")
+            logger.info(
+                f" → {client_name} (ID {client_id}): "
+                f"C-index={metrics.get('C-index', np.nan):.4f}, "
+                f"AUC={metrics.get('AUC', np.nan):.4f}, "
+                f"IBS={metrics.get('IBS', np.nan):.4f}"
+            )
+
+            metrics_dict[client_id] = metrics
+
+        logger.info(f"──────────────────────────────────────────────")
+
+        # Aggregate across clients using the same function as before
+        aggregated_metrics = aggregate_evaluate_metrics([(cid, m) for cid, m in metrics_dict.items()])
+
+        logger.info(
+            f"[Server] Round {server_round} - Aggregated Metrics → "
+            f"C-index={aggregated_metrics.get('C-index', np.nan):.4f}, "
+            f"AUC={aggregated_metrics.get('AUC', np.nan):.4f}, "
+            f"IBS={aggregated_metrics.get('IBS', np.nan):.4f}"
+        )
+
+        return None, aggregated_metrics
+
+# OUTSIDE THE CLASS
+def aggregate_evaluate_metrics(metrics):
+        """
+        Aggregate client metrics (mean of each metric across clients).
+        """
+        results = {"C-index": [], "AUC": [], "IBS": []}
+        for _, m in metrics:
+            for k, v in m.items():
+                if k in results and not np.isnan(v):
+                    results[k].append(v)
+        aggregated = {k: float(np.mean(v)) if v else np.nan for k, v in results.items()}
+        logging.info(
+            f"[Server] Round Metrics → "
+            f"C-index={aggregated.get('C-index', np.nan):.4f}, "
+            f"AUC={aggregated.get('AUC', np.nan):.4f}, "
+            f"IBS={aggregated.get('IBS', np.nan):.4f}"
+        )
+        return aggregated
+
+
 
 def get_strategy(strategy_name: str, **kwargs):
     """Return the selected FL strategy (CustomFedAvg by default)."""

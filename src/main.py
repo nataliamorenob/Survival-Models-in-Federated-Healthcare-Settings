@@ -1,3 +1,4 @@
+# ACTIVATE ENVIRONMENT CSC: [nmorenob@r07c51 Masters_thesis]$ source venv/bin/activate
 print("DEBUG: main.py started execution")
 
 import os, sys
@@ -14,7 +15,7 @@ import flwr as fl
 from dataset_manager import DatasetManager
 from model_manager import ModelManager
 #from Training_Modes.Federated_Learning.strategies import get_strategy
-from Training_Modes.Federated_Learning.strategies import CustomFedAvg
+from Training_Modes.Federated_Learning.strategies import CustomFedAvg, aggregate_evaluate_metrics
 
 print("DEBUG: reached end of import section successfully")
 

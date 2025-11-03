@@ -192,6 +192,7 @@ class StackedLogisticRegression:
         self.eta0 = eta0
 
         # SGDClassifier with log_loss behaves like logistic regression but supports partial_fit
+        # linear model trained using stochastic gradient descent (SGD)
         self.model = SGDClassifier(
             loss="log_loss",
             penalty=self.penalty,

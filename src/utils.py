@@ -535,7 +535,8 @@ def _evaluate_stacked_logistic(model, data, config, train_data=None, description
     logging.info("────────────────────────────────────────────────────────\n")
 
     return {
-        f"{description.lower()}_c_index": float(c_index_test),
-        f"{description.lower()}_mean_auc": float(auc_test),
-        f"{description.lower()}_ibs": float(ibs_like),
+        "C-index": float(c_index_test),
+        "AUC": float(auc_test),
+        "IBS": float(ibs_like),
     }
+
