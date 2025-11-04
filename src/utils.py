@@ -487,7 +487,8 @@ def _evaluate_stacked_logistic(model, data, config, train_data=None, description
     logging.info("────────────────────────────────────────────────────────")
 
     # --- 1. Extract features and labels ---
-    feature_cols = [c for c in data.columns if c.startswith("feature_")]
+    # Include both feature_ and time_bin_ columns
+    feature_cols = [c for c in data.columns if c.startswith("feature_") or c.startswith("time_bin_")]
     X_test = data[feature_cols]
     y_test = data["event"].astype(int).values
 

@@ -27,6 +27,7 @@ class Config:
     num_rounds: int = 2
     num_epochs: int = 2
     batch_size: int = 32
+    num_time_bins: int = 100
     strategy: str = "FedAvg"
     lr: float = 0.001
     

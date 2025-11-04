@@ -272,8 +272,16 @@ class DatasetManager:
         # Stacked Logistic Regression (SLR) model
         elif self.config.model.lower() == "slr":
             self.log_and_print(f"[Center {center}] Model=SLR → Performing stacking transformation.")
-            df_train_stacked = self._stack_data(df_train, center=center, split="train")
-            df_test_stacked = self._stack_data(df_test, center=center, split="test")
+
+            # First, find the global max time across all centers for consistent binning
+            global_max_time = self._get_global_max_time()
+
+            df_train_stacked = self._stack_data(
+                df_train, center=center, split="train", global_max_time=global_max_time
+            )
+            df_test_stacked = self._stack_data(
+                df_test, center=center, split="test", global_max_time=global_max_time
+            )
 
             self.log_and_print(
                 f"[Center {center}] After stacking: train={df_train_stacked.shape}, test={df_test_stacked.shape}"
@@ -290,7 +298,7 @@ class DatasetManager:
             df_val["feature_0"] = (df_val["feature_0"] - age_mean) / age_std
             dataloaders[center] = {"train": df_train_split, "val": df_val, "test": df_test}
 
-         # DEBUG: Save processed data to CSV for inspection
+        #  # DEBUG: Save processed data to CSV for inspection
         # try:
         #     # Define output directory (already created by init_logging)
         #     output_dir = self.config.experiment_dir
@@ -411,35 +419,160 @@ class DatasetManager:
         )
         return df_train_split, df_val
 
-    def _stack_data(self, df, center=None, split=""):
+    def _stack_data(self, df, center=None, split="", global_max_time=None):
         """
-        Create a stacked dataset for logistic regression survival modeling.
-        Each patient is repeated for each time up to their observed time.
-        Binary label = 1 if event occurred at that time, else 0.
+        Create a stacked dataset using time bins for logistic regression survival modeling.
+        Each patient is repeated for each time bin up to their observed time.
+        A binary label is 1 if the event occurred in that time bin, else 0.
+        The time bin itself is one-hot encoded as a feature.
         """
-        self.log_and_print(f"[Center {center}] [{split}] Starting stacking... input rows={len(df)}", "info")
-
-        stacked_rows = []
-        for _, row in df.iterrows():
-            time = int(row["time"])
-            event = int(row["event"])
-            features = row.drop(labels=["time", "event"], errors="ignore").values
-
-            for t in range(1, time + 1):
-                label = 1 if (t == time and event == 1) else 0
-                stacked_rows.append(np.concatenate([features, [label]]))
-
-        stacked_df = pd.DataFrame(
-            stacked_rows,
-            columns=[c for c in df.columns if c.startswith("feature_")] + ["event"]
+        self.log_and_print(
+            f"[Center {center}] [{split}] Starting stacking with {self.config.num_time_bins} bins... "
+            f"input rows={len(df)}",
+            "info",
         )
 
-        # Log summary info
-        self.log_and_print(f"[Center {center}] [{split}] Finished stacking — output rows={len(stacked_df)}", "info")
-        self.log_and_print(f"[Center {center}] [{split}] Event counts after stacking:\n{stacked_df['event'].value_counts().to_dict()}")
-        self.log_and_print(f"[Center {center}] [{split}] Example rows:\n{stacked_df.head(5).to_string(index=False)}", "debug")
+        if df.empty:
+            self.log_and_print(f"[Center {center}] [{split}] Input DataFrame is empty, cannot stack.", "warning")
+            # Return an empty DataFrame with expected columns
+            feature_cols = [c for c in df.columns if c.startswith("feature_")]
+            bin_cols = [f"time_bin_{i}" for i in range(self.config.num_time_bins)]
+            return pd.DataFrame(columns=feature_cols + bin_cols + ["event"])
+
+        # 1. Define time bins based on the GLOBAL max time
+        if global_max_time is None:
+            self.log_and_print(
+                f"[Center {center}] [{split}] No global_max_time provided, using local max time.", "warning"
+            )
+            global_max_time = df["time"].max()
+
+        if global_max_time == 0:
+            global_max_time = 1 # Avoid empty bins if max time is 0
+            
+        bins = np.linspace(0, global_max_time, self.config.num_time_bins + 1)
         
-        return stacked_df
+        self.log_and_print(f"[Center {center}] [{split}] Global time bins created: {np.round(bins, 2)}", "debug")
+
+        stacked_rows = []
+        feature_cols = [c for c in df.columns if c.startswith("feature_")]
+
+        # 2. For each patient, create a row for each time bin they were at risk
+        for _, row in df.iterrows():
+            patient_time = row["time"]
+            patient_event = row["event"]
+            features = row[feature_cols].values
+
+            # Find which bin the patient's event time falls into
+            event_bin_idx = np.digitize(patient_time, bins) - 1
+            
+            # A patient is at risk in all bins up to and including their event bin
+            for bin_idx in range(event_bin_idx + 1):
+                # Label is 1 only if it's the event bin and an event occurred
+                label = 1 if (bin_idx == event_bin_idx and patient_event == 1) else 0
+                
+                # Create a new row with original features, the bin index, and the label
+                new_row = np.concatenate([features, [bin_idx, label]])
+                stacked_rows.append(new_row)
+
+        if not stacked_rows:
+            self.log_and_print(f"[Center {center}] [{split}] No rows were created during stacking.", "warning")
+            bin_cols = [f"time_bin_{i}" for i in range(self.config.num_time_bins)]
+            return pd.DataFrame(columns=feature_cols + bin_cols + ["event"])
+
+        # 3. Create a DataFrame from the stacked rows
+        stacked_df = pd.DataFrame(stacked_rows, columns=feature_cols + ["time_bin", "event"])
+        stacked_df["time_bin"] = stacked_df["time_bin"].astype(int)
+
+        # DEBUG: Save the dataset with the categorical 'time_bin' column
+        try:
+            pre_dummy_path = os.path.join(
+                self.config.experiment_dir, f"center_{center}_{split}_pre_dummy.csv"
+            )
+            stacked_df.to_csv(pre_dummy_path, index=False)
+            self.log_and_print(f"[Debug] Saved pre-dummy data to {pre_dummy_path}", "debug")
+        except Exception as e:
+            self.log_and_print(f"[Debug] Failed to save pre-dummy CSV: {e}", "warning")
+
+        # 4. One-hot encode the 'time_bin' categorical feature
+        time_bin_dummies = pd.get_dummies(stacked_df["time_bin"], prefix="time_bin", dtype=int)
+        
+        # Ensure all possible bin columns are present, even if some bins had no data
+        for i in range(self.config.num_time_bins):
+            col_name = f"time_bin_{i}"
+            if col_name not in time_bin_dummies.columns:
+                time_bin_dummies[col_name] = 0
+        
+        # Order columns correctly
+        time_bin_dummies = time_bin_dummies[[f"time_bin_{i}" for i in range(self.config.num_time_bins)]]
+
+        # 5. Combine original features with the new one-hot encoded time features
+        final_df = pd.concat([stacked_df.drop(columns=["time_bin"]), time_bin_dummies], axis=1)
+
+        # DEBUG: Save the final dataset after one-hot encoding
+        try:
+            post_dummy_path = os.path.join(
+                self.config.experiment_dir, f"center_{center}_{split}_post_dummy.csv"
+            )
+            final_df.to_csv(post_dummy_path, index=False)
+            self.log_and_print(f"[Debug] Saved post-dummy data to {post_dummy_path}", "debug")
+        except Exception as e:
+            self.log_and_print(f"[Debug] Failed to save post-dummy CSV: {e}", "warning")
+
+        # Log summary info
+        self.log_and_print(f"[Center {center}] [{split}] Finished stacking — output rows={len(final_df)}", "info")
+        self.log_and_print(f"[Center {center}] [{split}] Event counts after stacking:\n{final_df['event'].value_counts().to_dict()}")
+        self.log_and_print(f"[Center {center}] [{split}] Final columns: {final_df.columns.tolist()}", "debug")
+        
+        return final_df
+
+    # ----------------------------------------------------------------------
+    # GLOBAL MAX TIME (shared across all centers)
+    # ----------------------------------------------------------------------
+    def _get_global_max_time(self):
+        """
+        Compute or cache the GLOBAL maximum 'time' across all centers
+        to ensure consistent time-bin edges (as in Westers et al. 2025).
+
+        Returns:
+            float: Global maximum survival time across all centers.
+        """
+        # Cache path so we don’t recompute every run
+        cache_path = os.path.join(self.config.cache_dir, "global_max_time.txt")
+
+        # If already computed, reuse it
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r") as f:
+                    global_max_time = float(f.read().strip())
+                self.log_and_print(f"[Global] Loaded cached global_max_time={global_max_time:.2f}")
+                return global_max_time
+            except Exception:
+                self.log_and_print("[Global] Failed to read cached global_max_time. Recomputing...", "warning")
+
+        # Otherwise, compute from all centers’ local data
+        self.log_and_print("[Global] Computing global maximum survival time across centers...")
+        max_times = []
+        for c in self.config.centers:
+            try:
+                ds = FedTcgaBrca(center=c, train=True)
+                times = [float(y[1]) for _, y in ds]
+                if times:
+                    max_times.append(max(times))
+                self.log_and_print(f"  Center {c}: local max={max(times):.2f}")
+            except Exception as e:
+                self.log_and_print(f"  [Center {c}] ⚠️ Failed to read times: {e}", "warning")
+
+        # Determine overall maximum
+        global_max_time = float(max(max_times)) if max_times else 1.0
+        self.log_and_print(f"[Global] Computed global_max_time={global_max_time:.2f}")
+
+        # Cache to disk for future calls
+        os.makedirs(self.config.cache_dir, exist_ok=True)
+        with open(cache_path, "w") as f:
+            f.write(str(global_max_time))
+
+        return global_max_time
+
 
     def _log_data_preview(self, df_train, df_test, center):
         """Helper to log basic dataset statistics and a few example rows."""

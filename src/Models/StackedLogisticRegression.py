@@ -200,7 +200,8 @@ class StackedLogisticRegression:
             random_state=self.random_state,
             max_iter=self.max_iter,
             learning_rate=self.learning_rate,
-            eta0=self.eta0,
+            eta0=0.1,  # Increased learning rate
+            warm_start=True,  # Enable warm_start
         )
         self.fitted = False
 
@@ -245,7 +246,6 @@ class StackedLogisticRegression:
         else:
             preds = 1 / (1 + np.exp(-self.model.decision_function(X)))
 
-        print(f"[DEBUG] predict_hazard: X.shape={X.shape}, model expects={self.model.n_features_in_}")
         return preds
 
 
@@ -259,7 +259,7 @@ class StackedLogisticRegression:
             return [self.model.coef_, self.model.intercept_]
 
         # If model not yet trained, initialize to correct feature size (39)
-        n_features = 39  # fixed number of features in stacked dataset
+        n_features = 139  # fixed number of features in stacked dataset
         coef = np.zeros((1, n_features), dtype=np.float32)
         intercept = np.zeros(1, dtype=np.float32)
 
@@ -268,9 +268,13 @@ class StackedLogisticRegression:
 
 
     def set_params(self, params):
+        """Set model parameters from a list of NumPy arrays."""
         self.model.coef_ = params[0].copy()
         self.model.intercept_ = params[1].copy()
         self.model.classes_ = np.array([0, 1])
-        self.fitted = True
+        
+        # Explicitly update the number of features the model expects
         self.model.n_features_in_ = self.model.coef_.shape[1]
+        
+        self.fitted = True
 
