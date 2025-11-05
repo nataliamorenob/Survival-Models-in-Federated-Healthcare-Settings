@@ -9,7 +9,6 @@
 #SBATCH --error=job_%j.err
 #SBATCH --mail-type=BEGIN
 
-module load Python/3.9
 source /scratch/project_2015651/Masters_thesis/venv/bin/activate
 cd /scratch/project_2015651/Masters_thesis/src
 
