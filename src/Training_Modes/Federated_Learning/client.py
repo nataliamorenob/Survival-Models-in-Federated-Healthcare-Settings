@@ -167,6 +167,7 @@ class FederatedCoxClient(NumPyClient):
 
             # Compute metrics externally (C-Index, IBS, AUC)
             metrics = evaluate_model(self.model, self.test_data, self.config, train_data=self.train_data, client_id=self.cid)
+            metrics["client_name"] = self.name
             return 0.0, len(X_test), metrics
 
         else:

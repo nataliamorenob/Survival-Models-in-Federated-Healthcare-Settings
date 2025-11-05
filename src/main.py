@@ -130,11 +130,11 @@ if __name__ == "__main__":
     # Define user-specific configuration
     user_config = Config(
         model="SLR",
-        centers=[0, 1, 2],
+        centers=[0, 1, 2, 3, 4, 5],
         training_mode="federated",
-        num_clients=3,
+        num_clients=6,
         strategy="FedAvg",
-        num_rounds=3,
+        num_rounds=150,
     )
     main(user_config)
 

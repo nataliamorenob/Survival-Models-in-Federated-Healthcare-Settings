@@ -74,7 +74,8 @@ class CustomFedAvg(FedAvg):
             metrics = evaluate_res.metrics
 
             # Pretty print each client's metrics
-            client_name = getattr(client_proxy, "name", f"Client {client_id}")
+            #client_name = getattr(client_proxy, "name", f"Client {client_id}")
+            client_name = metrics.get("client_name", f"Client {client_id}")
             logger.info(
                 f" → {client_name} (ID {client_id}): "
                 f"C-index={metrics.get('C-index', np.nan):.4f}, "
