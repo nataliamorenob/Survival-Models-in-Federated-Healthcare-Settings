@@ -1,6 +1,7 @@
 from Models.CustomCoxModel import CustomCoxModel
 from Models.CoxPH import CoxPH_model
 from Models.StackedLogisticRegression import StackedLogisticRegression
+from Models.FederatedSurvivalForest import SurvivalRandomForest
 
 class ModelManager:
     def __init__(self, config):
@@ -12,6 +13,8 @@ class ModelManager:
             self.model = CoxPH_model
         elif self.config.model == "SLR":
             self.model = StackedLogisticRegression()
+        elif self.config.model == "RSF":
+            self.model = SurvivalRandomForest()
         else: # TO DO for other models
             raise ValueError(f"Unsupported model type: {self.config.model}")
 

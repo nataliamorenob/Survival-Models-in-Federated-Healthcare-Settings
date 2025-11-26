@@ -541,3 +541,147 @@ def _evaluate_stacked_logistic(model, data, config, train_data=None, description
         "IBS": float(ibs_like),
     }
 
+
+
+import numpy as np
+import logging
+from lifelines.utils import concordance_index
+from sksurv.metrics import (
+    concordance_index_ipcw,
+    cumulative_dynamic_auc,
+    brier_score
+)
+
+
+def evaluate_rsf(model, data, client_id, config):
+    """
+    Evaluate a Random Survival Forest model using:
+        - C-index (Harrell)
+        - IPCW C-index (Uno's method)
+        - AUC(t) using per-client evaluation times
+        - Integrated Brier Score (IBS)
+
+    Parameters
+    ----------
+    model : SurvivalRandomForest
+        The RSF model (with .predict_survival_function and .estimators_)
+
+    data : dict
+        {
+            "X_test": np.ndarray,
+            "y_test": structured array or dataframe,
+            "eval_times": np.ndarray,
+        }
+
+    client_id : int
+    config : Config
+
+    Returns
+    -------
+    dict with keys: "C-index", "IPCW_C-index", "AUC", "IBS"
+    """
+
+    logger = logging.getLogger("main")
+    logger.info(f"[Client {client_id}] Evaluating RSF model...")
+
+    # -----------------------------------------------------
+    # Unpack data
+    # -----------------------------------------------------
+    X_test = data["X_test"]
+    y_test = data["y_test"]         # structured array
+    eval_times = data["eval_times"]
+
+    # Get training structured array from config (saved in DatasetManager)
+    y_train = config.y_train_per_client[client_id]   # structured array
+
+    # Extract time / event
+    test_events = y_test["event"].astype(bool)
+    test_times  = y_test["time"].astype(float)
+
+    # -----------------------------------------------------
+    # Predict survival curves for test samples
+    # -----------------------------------------------------
+    surv_fns = model.predict_survival_function(X_test)
+
+    # Convert survival functions into numpy array:
+    # shape = (n_samples, n_eval_times)
+    surv_probs = np.zeros((len(surv_fns), len(eval_times)))
+    for i, fn in enumerate(surv_fns):
+        # Evaluate survival fn at all eval_times
+        surv_probs[i, :] = fn(eval_times)
+
+    # -----------------------------------------------------
+    # C-index (Harrell)
+    # -----------------------------------------------------
+    try:
+        # Use negative survival probability at first eval time as risk score proxy
+        risk_scores = -surv_probs[:, 0]  
+        c_index = concordance_index(
+            test_times,
+            risk_scores,
+            test_events
+        )
+    except Exception as e:
+        logger.warning(f"[Client {client_id}] Failed to compute C-index: {e}")
+        c_index = np.nan
+
+    # -----------------------------------------------------
+    # IPCW C-index (Uno method)
+    # -----------------------------------------------------
+    try:
+        cindex_ipcw, _ = concordance_index_ipcw(
+            y_train,      # Structured array from training set
+            y_test,       # Structured array from test set
+            risk_scores
+        )
+    except Exception as e:
+        logger.warning(f"[Client {client_id}] Failed IPCW C-index: {e}")
+        cindex_ipcw = np.nan
+
+    # -----------------------------------------------------
+    # Time-dependent AUC(t)
+    # -----------------------------------------------------
+    try:
+        aucs, mean_auc = cumulative_dynamic_auc(
+            y_train,
+            y_test,
+            risk_scores,
+            eval_times
+        )
+    except Exception as e:
+        logger.warning(f"[Client {client_id}] Failed AUC(t): {e}")
+        aucs = []
+        mean_auc = np.nan
+
+    # -----------------------------------------------------
+    # Integrated Brier Score (IBS)
+    # -----------------------------------------------------
+    try:
+        bs_times, bs_scores = brier_score(
+            y_train,
+            y_test,
+            surv_probs,     # shape = (n_samples, n_times)
+            eval_times
+        )
+
+        # Numerical integration using trapezoidal rule
+        ibs = np.trapz(bs_scores, bs_times) / (bs_times[-1] - bs_times[0])
+    except Exception as e:
+        logger.warning(f"[Client {client_id}] Failed IBS: {e}")
+        ibs = np.nan
+
+    logger.info(
+        f"[Client {client_id}] "
+        f"C-index={c_index:.4f}, "
+        f"IPCW={cindex_ipcw:.4f}, "
+        f"AUC={mean_auc:.4f}, "
+        f"IBS={ibs:.4f}"
+    )
+
+    return {
+        "C-index": float(c_index),
+        "IPCW_C-index": float(cindex_ipcw),
+        "AUC": float(mean_auc),
+        "IBS": float(ibs),
+        "client_name": f"Client {client_id}"
+    }

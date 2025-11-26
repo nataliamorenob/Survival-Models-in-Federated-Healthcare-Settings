@@ -40,7 +40,11 @@ class Config:
     cache_dir: Path = None 
 
     # Metrics specific parameters
-    global_eval_times: list = field(default_factory=lambda: [100, 489, 878, 1267, 1656, 2044, 2433, 2822, 3211, 3500])
+    #global_eval_times: list = field(default_factory=lambda: [100, 489, 878, 1267, 1656, 2044, 2433, 2822, 3211, 3500])
+    eval_times_per_client: dict = field(default_factory=dict)
+
+
+
 
     def __post_init__(self):
         """Ensure the results directory and experiment-specific subfolder are created."""

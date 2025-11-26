@@ -75,15 +75,26 @@ def main(config: Config):
             model_manager.initialize_model()
             model = model_manager.get_model()
 
-            # Return client
-            return FederatedCoxClient(
-                cid=cid_int,
-                name=config.centers[cid_int],
-                model=model,
-                config=config,
-                dataset_manager=None,
-                dataloaders=dataloaders
-            )#.to_client()
+            if config.model == "RSF":
+                from Training_Modes.Federated_Learning.clientRSF import FederatedRSFClient
+                return FederatedRSFClient(
+                    cid=cid_int,
+                    name=config.centers[cid_int],
+                    model=model,
+                    config=config,
+                    dataloaders=dataloaders
+                    # there is no need to pass the model bc FEderatedRSFClient
+                )
+            elif config.model == "SLR":
+                # Return client
+                return FederatedCoxClient(
+                    cid=cid_int,
+                    name=config.centers[cid_int],
+                    model=model,
+                    config=config,
+                    dataset_manager=None,
+                    dataloaders=dataloaders
+                )#.to_client()
 
         
 
@@ -129,12 +140,12 @@ def main(config: Config):
 if __name__ == "__main__":
     # Define user-specific configuration
     user_config = Config(
-        model="SLR",
+        model="RSF",
         centers=[0, 1, 2, 3, 4, 5],
         training_mode="federated",
         num_clients=6,
-        strategy="FedAvg",
-        num_rounds=150,
+        strategy="FedSurvForest",
+        num_rounds=2,
     )
     main(user_config)
 

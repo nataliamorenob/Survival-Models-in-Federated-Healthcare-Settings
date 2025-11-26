@@ -262,7 +262,7 @@ class DatasetManager:
                 f"[Center {center}] Normalized feature_0 (age): mean={age_mean:.2f}, std={age_std:.2f}"
             )
 
-        # Model-specific handling:
+        # MDEL-SPECIFIC HANDELING:------------------------>
         
         # CoxPH model
         if self.config.model.lower() == "coxph":
@@ -288,7 +288,62 @@ class DatasetManager:
             )
 
             dataloaders[center] = {"train": df_train_stacked, "val": None, "test": df_test_stacked}
+        
+        elif self.config.model.lower() == "rsf":
 
+            # RSF always keeps original DataFrames
+            dataloaders[center] = {
+                "train_df": df_train,
+                "test_df": df_test,
+                "val": None
+            }
+
+            # Extract features
+            feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
+            X_train = df_train[feature_cols].values
+            X_test = df_test[feature_cols].values
+
+            # Build structured survival arrays
+            from sksurv.util import Surv
+            y_train = Surv.from_arrays(
+                event=df_train["event"].astype(bool),
+                time=df_train["time"].astype(float)
+            )
+            y_test = Surv.from_arrays(
+                event=df_test["event"].astype(bool),
+                time=df_test["time"].astype(float)
+            )
+
+            dataloaders[center]["X_train"] = X_train
+            dataloaders[center]["X_test"] = X_test
+            dataloaders[center]["y_train"] = y_train
+            dataloaders[center]["y_test"] = y_test
+
+            # ---------------------------------------------
+            # Compute client-specific evaluation times
+            # ---------------------------------------------
+            event_times = df_test.loc[df_test["event"] == 1, "time"].values
+
+            if len(event_times) > 1:
+                eval_times = np.quantile(event_times, np.linspace(0.1, 0.9, 20))
+            else:
+                mint, maxt = df_test["time"].min(), df_test["time"].max()
+                eval_times = np.linspace(mint, maxt, 20)
+
+            eval_times = np.unique(eval_times)
+            dataloaders[center]["eval_times"] = eval_times
+
+            # also store globally in the config
+            if not hasattr(self.config, "eval_times_per_client"):
+                self.config.eval_times_per_client = {}
+            self.config.eval_times_per_client[self.client_idx] = eval_times.tolist()
+
+            self.log_and_print(
+                f"[Center {center}] RSF eval_times stored: {np.round(eval_times, 2)}"
+            )
+
+    
+        
         # Deep models 
         else:
             self.log_and_print(
@@ -318,9 +373,9 @@ class DatasetManager:
             
         pd.to_pickle(dataloaders, cache_path)
         self.log_and_print(f"[Federated] Cached dataset saved for center {center} → {cache_path}")
-
-
         self.log_and_print(f"[Federated] Center {center} processed successfully")
+
+
         return dataloaders
 
 
@@ -596,3 +651,5 @@ class DatasetManager:
             self.log_and_print(f"  → Example rows:\n{df_test.head(3).to_string(index=False)}")
         except Exception as e:
             self.log_and_print(f"[Center {center}] ⚠️ Failed to log data preview: {e}", "warning")
+
+    

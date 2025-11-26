@@ -120,6 +120,48 @@ def aggregate_evaluate_metrics(metrics):
 
 
 
+
+
+class FedSurvForest(FedAvg):
+    """
+    Federated Survival Forest strategy.
+
+    Clients return a LIST OF TREES instead of parameters.
+    Server aggregates these trees by simply concatenating them.
+    Optional: you may later add IBS-based weighted sampling.
+    """
+
+    def aggregate_fit(self, server_round, results, failures):
+        logger = logging.getLogger("main")
+
+        if not results:
+            logger.error("[Server] No results received in aggregate_fit.")
+            return None, {}
+
+        logger.info(f"[Server] Aggregating trees for round {server_round}...")
+
+        # Collect all trees from all clients
+        all_trees = []
+        for client, fit_res in results:
+            client_trees = fit_res.parameters  # this is already the list of sklearn trees
+            logger.info(f"  → Received {len(client_trees)} trees from a client")
+            all_trees.extend(client_trees)
+
+        logger.info(f"[Server] Total trees aggregated this round: {len(all_trees)}")
+
+        # Wrap inside a Flower Parameters dictionary
+        # So clients can access parameters["trees"]
+        aggregated = {
+            "trees": all_trees
+        }
+
+        return aggregated, {}
+
+
+
+
+
+
 def get_strategy(strategy_name: str, **kwargs):
     """Return the selected FL strategy (CustomFedAvg by default)."""
     strategies = {
@@ -128,6 +170,7 @@ def get_strategy(strategy_name: str, **kwargs):
         "FedAdagrad": FedAdagrad,
         "FedYogi": FedYogi,
         "FedProx": FedProx,
+        "FedSurvForest": FedSurvForest,
     }
 
     if strategy_name not in strategies:
