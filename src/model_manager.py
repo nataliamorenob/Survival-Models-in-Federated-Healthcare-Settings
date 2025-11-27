@@ -14,7 +14,12 @@ class ModelManager:
         elif self.config.model == "SLR":
             self.model = StackedLogisticRegression()
         elif self.config.model == "RSF":
-            self.model = SurvivalRandomForest()
+            self.model = SurvivalRandomForest(
+                n_estimators=self.config.n_trees_local,
+                min_samples_split=self.config.min_samples_split,
+                min_samples_leaf=self.config.min_samples_leaf,
+                random_state=self.config.random_state)
+
         else: # TO DO for other models
             raise ValueError(f"Unsupported model type: {self.config.model}")
 

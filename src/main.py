@@ -15,7 +15,7 @@ import flwr as fl
 from dataset_manager import DatasetManager
 from model_manager import ModelManager
 #from Training_Modes.Federated_Learning.strategies import get_strategy
-from Training_Modes.Federated_Learning.strategies import CustomFedAvg, aggregate_evaluate_metrics
+from Training_Modes.Federated_Learning.strategies import CustomFedAvg, FedSurvForest, aggregate_evaluate_metrics
 
 print("DEBUG: reached end of import section successfully")
 
@@ -50,7 +50,7 @@ def main(config: Config):
     logging.getLogger().setLevel(logging.INFO)
     logger.info(f"Experiment started: {config.experiment_id}")
 
-    logger.info(f"[Global] Evaluation times set: {config.global_eval_times}")
+    #logger.info(f"[Global] Evaluation times set: {config.global_eval_times}")
 
     import ray
     ray.init(
@@ -84,7 +84,7 @@ def main(config: Config):
                     config=config,
                     dataloaders=dataloaders
                     # there is no need to pass the model bc FEderatedRSFClient
-                )
+                ).to_client()
             elif config.model == "SLR":
                 # Return client
                 return FederatedCoxClient(
@@ -108,13 +108,41 @@ def main(config: Config):
         def get_client(cid: str) -> fl.client.Client:
             return clients[int(cid)]
 
-        strategy = CustomFedAvg(
-            fraction_fit=1.0,
-            fraction_evaluate=1.0,
-            min_fit_clients=config.num_clients,
-            min_evaluate_clients=config.num_clients,
-            min_available_clients=config.num_clients,
-        )
+
+        # Selection of FL strategy based on config.strategy parameter:
+        if config.strategy == "FedSurvForest":
+            logger.info("[Global] Using FedSurvForest strategy")
+            strategy = FedSurvForest(
+                fraction_fit=1.0,
+                fraction_evaluate=1.0,
+                min_fit_clients=config.num_clients,
+                min_evaluate_clients=config.num_clients,
+                min_available_clients=config.num_clients,
+                # extra hyperparameters needed by FedSurvForest
+                num_trees_fed=config.n_trees_federated
+            )
+
+        elif config.strategy == "CustomFedAvg":
+            logger.info("[Global] Using CustomFedAvg strategy")
+            strategy = CustomFedAvg(
+                fraction_fit=1.0,
+                fraction_evaluate=1.0,
+                min_fit_clients=config.num_clients,
+                min_evaluate_clients=config.num_clients,
+                min_available_clients=config.num_clients
+            )
+
+        else:
+            raise ValueError(f"No FL strategy defined.")
+        
+        
+        # strategy = CustomFedAvg(
+        #     fraction_fit=1.0,
+        #     fraction_evaluate=1.0,
+        #     min_fit_clients=config.num_clients,
+        #     min_evaluate_clients=config.num_clients,
+        #     min_available_clients=config.num_clients,
+        # )
 
         #strategy = get_strategy(config.strategy)
         logger.info("Starting Federated Learning simulation...")
@@ -141,9 +169,9 @@ if __name__ == "__main__":
     # Define user-specific configuration
     user_config = Config(
         model="RSF",
-        centers=[0, 1, 2, 3, 4, 5],
+        centers=[0, 1, 2],
         training_mode="federated",
-        num_clients=6,
+        num_clients=3,
         strategy="FedSurvForest",
         num_rounds=2,
     )

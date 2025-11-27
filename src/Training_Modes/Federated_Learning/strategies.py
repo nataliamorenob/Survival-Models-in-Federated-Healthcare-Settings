@@ -121,41 +121,150 @@ def aggregate_evaluate_metrics(metrics):
 
 
 
+import numpy as np
+import logging
+from flwr.server.strategy import FedAvg
+
 
 class FedSurvForest(FedAvg):
     """
-    Federated Survival Forest strategy.
+    Federated Survival Forest (Simple version)
 
-    Clients return a LIST OF TREES instead of parameters.
-    Server aggregates these trees by simply concatenating them.
-    Optional: you may later add IBS-based weighted sampling.
+    - Client-proportional sampling
+    - Tree-per-client budget correction
+    - Uniform tree sampling inside each client
     """
+
+    def __init__(
+        self,
+        fraction_fit=1.0,
+        fraction_evaluate=1.0,
+        min_fit_clients=1,
+        min_evaluate_clients=1,
+        min_available_clients=1,
+        num_trees_fed=None,     # <-- your custom parameter
+    ):
+        # store custom argument
+        self.num_trees_fed = num_trees_fed
+
+        # call FedAvg init with ONLY allowed arguments
+        super().__init__(
+            fraction_fit=fraction_fit,
+            fraction_evaluate=fraction_evaluate,
+            min_fit_clients=min_fit_clients,
+            min_evaluate_clients=min_evaluate_clients,
+            min_available_clients=min_available_clients,
+        )
+
 
     def aggregate_fit(self, server_round, results, failures):
         logger = logging.getLogger("main")
 
         if not results:
-            logger.error("[Server] No results received in aggregate_fit.")
+            logger.error("[Server] No results for round %d", server_round)
             return None, {}
 
-        logger.info(f"[Server] Aggregating trees for round {server_round}...")
+        logger.info(f"[Server] Federated RSF aggregation for round {server_round}")
 
-        # Collect all trees from all clients
-        all_trees = []
-        for client, fit_res in results:
-            client_trees = fit_res.parameters  # this is already the list of sklearn trees
-            logger.info(f"  → Received {len(client_trees)} trees from a client")
-            all_trees.extend(client_trees)
+        # ---------------------------------------------------------
+        # 1) Extract per-client trees
+        # ---------------------------------------------------------
+        client_trees = []
+        client_sizes = []
 
-        logger.info(f"[Server] Total trees aggregated this round: {len(all_trees)}")
+        for client_proxy, fit_res in results:
+            #trees = fit_res.parameters          # a LIST of sklearn tree estimators
+            import pickle
+            trees = pickle.loads(fit_res.parameters.tensors[0])
+            n_local = fit_res.num_examples      # number of training samples in client
+            client_trees.append(trees)
+            client_sizes.append(n_local)
 
-        # Wrap inside a Flower Parameters dictionary
-        # So clients can access parameters["trees"]
-        aggregated = {
-            "trees": all_trees
-        }
+            logger.info(
+                f"  → Client contributed {len(trees)} trees, "
+                f"trained on {n_local} samples"
+            )
 
-        return aggregated, {}
+        client_sizes = np.array(client_sizes, dtype=float)
+        total_samples = client_sizes.sum()
+
+        # ---------------------------------------------------------
+        # 2) Compute proportional sampling probabilities
+        # ---------------------------------------------------------
+        client_probs = client_sizes / total_samples
+        logger.info(f"[Server] Client sampling probabilities: {client_probs}")
+
+        # ---------------------------------------------------------
+        # 3) Total number of federated trees (equals sum locally)
+        # ---------------------------------------------------------
+        all_local_trees = sum([len(t) for t in client_trees])
+        NS = all_local_trees    # simple version: use all local trees
+
+        logger.info(f"[Server] Target federated forest size: {NS} trees")
+
+        # ---------------------------------------------------------
+        # 4) Sample client indices proportional to sample counts
+        # ---------------------------------------------------------
+        sampled_client_ids = np.random.choice(
+            a=len(client_trees),
+            size=NS,
+            p=client_probs
+        )
+
+        # Count how many trees we want from each client
+        trees_per_client = np.array([
+            np.sum(sampled_client_ids == j) for j in range(len(client_trees))
+        ])
+
+        logger.info(f"[Server] Desired trees per client: {trees_per_client}")
+
+        # ---------------------------------------------------------
+        # 5) Budget correction:
+        # If a client does not have enough trees, shift allocation
+        # ---------------------------------------------------------
+        actual_available = np.array([len(t) for t in client_trees])
+        diff = actual_available - trees_per_client   # negative = deficit
+
+        # While ANY client has deficit
+        while (diff < 0).any():
+            deficit_client = np.random.choice(np.where(diff < 0)[0])
+            surplus_client = np.random.choice(np.where(diff > 0)[0])
+
+            trees_per_client[deficit_client] -= 1
+            trees_per_client[surplus_client] += 1
+
+            diff = actual_available - trees_per_client
+
+        logger.info(f"[Server] Corrected trees per client: {trees_per_client}")
+
+        # ---------------------------------------------------------
+        # 6) Build federated forest (simple version: uniform sampling)
+        # ---------------------------------------------------------
+        federated_trees = []
+
+        for cid, ntrees in enumerate(trees_per_client):
+            local_pool = client_trees[cid]
+
+            if ntrees > 0:
+                sampled = np.random.choice(local_pool, size=ntrees, replace=False)
+                federated_trees.extend(sampled)
+
+        logger.info(f"[Server] Federated forest built with {len(federated_trees)} trees")
+
+        # ---------------------------------------------------------
+        # 7) Return aggregated parameters to clients
+        # ---------------------------------------------------------
+        import pickle
+        from flwr.common import Parameters
+
+        return (
+            Parameters(
+                tensors=[pickle.dumps(federated_trees)],
+                tensor_type="pickle"
+            ),
+            {}
+        )
+
 
 
 

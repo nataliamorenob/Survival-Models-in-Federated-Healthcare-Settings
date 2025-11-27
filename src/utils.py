@@ -589,10 +589,9 @@ def evaluate_rsf(model, data, client_id, config):
     # -----------------------------------------------------
     X_test = data["X_test"]
     y_test = data["y_test"]         # structured array
+    y_train = data["y_train"]
     eval_times = data["eval_times"]
 
-    # Get training structured array from config (saved in DatasetManager)
-    y_train = config.y_train_per_client[client_id]   # structured array
 
     # Extract time / event
     test_events = y_test["event"].astype(bool)
