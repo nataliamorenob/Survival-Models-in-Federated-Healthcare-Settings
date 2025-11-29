@@ -2,7 +2,7 @@ import numpy as np
 import logging
 from flwr.server.strategy import FedAvg, FedAdam, FedAdagrad, FedYogi, FedProx
 from flwr.common import parameters_to_ndarrays, ndarrays_to_parameters
-
+import copy
 
 class CustomFedAvg(FedAvg):
     """Custom FedAvg strategy that logs and properly aggregates parameters."""
@@ -160,6 +160,44 @@ class FedSurvForest(FedAvg):
     def aggregate_fit(self, server_round, results, failures):
         logger = logging.getLogger("main")
 
+        # ==============================================================
+        # ROUND 0: Ask clients to send event-time arrays only
+        # ==============================================================
+
+        if server_round == 0:
+            all_times = []
+
+            for _, fit_res in results:
+                # Clients send 1 ndarray containing event-times
+                event_times = fl.common.parameters_to_ndarrays(fit_res.parameters)[0]
+                all_times.extend(event_times.tolist())
+
+            # Build global grid
+            self.global_event_times = np.unique(all_times)
+            logger.info(
+                f"[Server] Built global event-time grid with {len(self.global_event_times)} points"
+            )
+
+            import pickle
+            # SEND NON-EMPTY PLACEHOLDERS 
+            empty_forest = []  # no trees yet
+            placeholder_times = self.global_event_times  # real global grid
+
+            return (
+                fl.common.Parameters(
+                    tensors=[
+                        pickle.dumps(empty_forest),
+                        pickle.dumps(placeholder_times),
+                    ],
+                    tensor_type="pickle",
+                ),
+                {}
+            )
+
+        # ==============================================================
+        # ROUND 1+: Normal RSF aggregation (your original code)
+        # ==============================================================
+
         if not results:
             logger.error("[Server] No results for round %d", server_round)
             return None, {}
@@ -173,37 +211,39 @@ class FedSurvForest(FedAvg):
         client_sizes = []
 
         for client_proxy, fit_res in results:
-            #trees = fit_res.parameters          # a LIST of sklearn tree estimators
             import pickle
             trees = pickle.loads(fit_res.parameters.tensors[0])
-            n_local = fit_res.num_examples      # number of training samples in client
+            n_local = fit_res.num_examples
             client_trees.append(trees)
             client_sizes.append(n_local)
 
             logger.info(
-                f"  → Client contributed {len(trees)} trees, "
-                f"trained on {n_local} samples"
+                f"  → Client contributed {len(trees)} trees, trained on {n_local} samples"
             )
 
         client_sizes = np.array(client_sizes, dtype=float)
         total_samples = client_sizes.sum()
 
         # ---------------------------------------------------------
-        # 2) Compute proportional sampling probabilities
+        # 2) Proportional sampling probabilities
         # ---------------------------------------------------------
         client_probs = client_sizes / total_samples
         logger.info(f"[Server] Client sampling probabilities: {client_probs}")
 
         # ---------------------------------------------------------
-        # 3) Total number of federated trees (equals sum locally)
+        # 3) Determine number of trees in global forest
         # ---------------------------------------------------------
-        all_local_trees = sum([len(t) for t in client_trees])
-        NS = all_local_trees    # simple version: use all local trees
+        total_available = sum(len(t) for t in client_trees)
+
+        if self.num_trees_fed is None:
+            NS = total_available
+        else:
+            NS = min(self.num_trees_fed, total_available)
 
         logger.info(f"[Server] Target federated forest size: {NS} trees")
 
         # ---------------------------------------------------------
-        # 4) Sample client indices proportional to sample counts
+        # 4) Sample clients proportional to dataset size
         # ---------------------------------------------------------
         sampled_client_ids = np.random.choice(
             a=len(client_trees),
@@ -211,7 +251,6 @@ class FedSurvForest(FedAvg):
             p=client_probs
         )
 
-        # Count how many trees we want from each client
         trees_per_client = np.array([
             np.sum(sampled_client_ids == j) for j in range(len(client_trees))
         ])
@@ -219,53 +258,78 @@ class FedSurvForest(FedAvg):
         logger.info(f"[Server] Desired trees per client: {trees_per_client}")
 
         # ---------------------------------------------------------
-        # 5) Budget correction:
-        # If a client does not have enough trees, shift allocation
+        # 5) Budget correction
         # ---------------------------------------------------------
         actual_available = np.array([len(t) for t in client_trees])
-        diff = actual_available - trees_per_client   # negative = deficit
+        diff = actual_available - trees_per_client
 
-        # While ANY client has deficit
         while (diff < 0).any():
-            deficit_client = np.random.choice(np.where(diff < 0)[0])
-            surplus_client = np.random.choice(np.where(diff > 0)[0])
+            deficit = np.random.choice(np.where(diff < 0)[0])
+            surplus = np.random.choice(np.where(diff > 0)[0])
 
-            trees_per_client[deficit_client] -= 1
-            trees_per_client[surplus_client] += 1
+            trees_per_client[deficit] -= 1
+            trees_per_client[surplus] += 1
 
             diff = actual_available - trees_per_client
 
         logger.info(f"[Server] Corrected trees per client: {trees_per_client}")
 
         # ---------------------------------------------------------
-        # 6) Build federated forest (simple version: uniform sampling)
+        # 6) Build global forest
         # ---------------------------------------------------------
         federated_trees = []
 
         for cid, ntrees in enumerate(trees_per_client):
-            local_pool = client_trees[cid]
-
+            pool = client_trees[cid]
             if ntrees > 0:
-                sampled = np.random.choice(local_pool, size=ntrees, replace=False)
+                sampled = np.random.choice(pool, size=ntrees, replace=False)
+                sampled = [copy.deepcopy(t) for t in sampled]
                 federated_trees.extend(sampled)
 
         logger.info(f"[Server] Federated forest built with {len(federated_trees)} trees")
 
         # ---------------------------------------------------------
-        # 7) Return aggregated parameters to clients
+        # 7) Send trees + global event-time grid back to clients
         # ---------------------------------------------------------
         import pickle
-        from flwr.common import Parameters
-
         return (
-            Parameters(
-                tensors=[pickle.dumps(federated_trees)],
+            fl.common.Parameters(
+                tensors=[
+                    pickle.dumps(federated_trees),          # global trees
+                    pickle.dumps(self.global_event_times),  # global time grid
+                ],
                 tensor_type="pickle"
             ),
             {}
         )
 
 
+
+    def configure_fit(self, server_round, parameters, client_manager):
+        # Round 0: ask clients to send event-times only
+        if server_round == 0:
+            return [
+                fl.server.client_proxy.FitIns(
+                    parameters=fl.common.Parameters(tensors=[], tensor_type=""),
+                    config={"send_event_times": True}
+                )
+                for _ in range(self.min_fit_clients)
+            ]
+
+        # Otherwise normal fit
+        return super().configure_fit(server_round, parameters, client_manager)
+
+    def configure_evaluate(self, server_round, parameters, client_manager):
+        # Disable evaluation until after global forest exists
+        if server_round < 2:
+            return []
+        return super().configure_evaluate(server_round, parameters, client_manager)
+
+    def evaluate(self, server_round, parameters):
+        # Disable server-side evaluation in rounds 0 and 1
+        if server_round < 2:
+            return None  # no server evaluation
+        return super().evaluate(server_round, parameters)
 
 
 

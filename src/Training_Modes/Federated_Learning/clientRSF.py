@@ -101,25 +101,49 @@ class FederatedRSFClient(Client):
     # GET PARAMETERS (not used):
     from flwr.common import Parameters, GetParametersRes
 
+
     def get_parameters(self, ins):
+        # For RSF, we use get_parameters to return only event times in round 0
+        if ins.config.get("request_event_times", False):
+            event_times = self.get_event_times()
+            return fl.common.GetParametersRes(
+                status=fl.common.Status(code=fl.common.Code.OK),
+                parameters=fl.common.ndarrays_to_parameters([np.array(event_times)])
+            )
+
+        # Otherwise, return empty parameters
         empty = Parameters(tensors=[], tensor_type="")
         return GetParametersRes(
             status=Status(code=Code.OK, message="OK"),
             parameters=empty)
 
 
+
     def fit(self, ins):
+
+        # Case 1: Round 0 → send event times
+        if ins.config.get("send_event_times", False):
+            event_times = self.y_train["time"][self.y_train["event"]].astype(float)
+            return fl.common.FitRes(
+                status=fl.common.Status(code=fl.common.Code.OK),
+                parameters=fl.common.ndarrays_to_parameters([event_times]),
+                num_examples=len(event_times),
+                metrics={}
+            )
+
+        # Case 2: Normal RSF training
         self.model.fit(self.X_train, self.y_train)
         trees = self.model.estimators_
 
         return FitRes(
-            status=Status(code=Code.OK, message="OK"),
+            status=Status(code=Code.OK),
             parameters=Parameters(
                 tensors=[pickle.dumps(trees)],
                 tensor_type="pickle",
             ),
             num_examples=len(self.X_train),
-            metrics={})
+            metrics={}
+        )
 
 
 
@@ -128,8 +152,17 @@ class FederatedRSFClient(Client):
         #self.model.set_trees(trees)
         
         import pickle
-        trees = pickle.loads(ins.parameters.tensors[0])
-        self.model.set_trees(trees)
+        # trees = pickle.loads(ins.parameters.tensors[0])
+        # n_features = self.X_train.shape[1]
+        # self.model.set_trees(trees, n_features)
+        federated_trees = pickle.loads(ins.parameters.tensors[0])
+        global_event_times = pickle.loads(ins.parameters.tensors[1])
+
+        n_features = self.X_train.shape[1]
+        self.model.set_trees(
+            trees=federated_trees,
+            n_features=n_features,
+            global_event_times=global_event_times)
 
 
         metrics = evaluate_rsf(
@@ -150,3 +183,9 @@ class FederatedRSFClient(Client):
             num_examples=len(self.X_test),
             metrics=metrics
         )
+
+
+    def get_event_times(self):
+        """Return client training event times for global synchronization."""
+        times = self.y_train["time"][self.y_train["event"]].astype(float).tolist()
+        return times

@@ -173,7 +173,7 @@ if __name__ == "__main__":
         training_mode="federated",
         num_clients=3,
         strategy="FedSurvForest",
-        num_rounds=2,
+        num_rounds=1,
     )
     main(user_config)
 
