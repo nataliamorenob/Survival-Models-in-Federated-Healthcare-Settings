@@ -12,6 +12,7 @@ from flwr.common import (
 )
 from flwr.common import Parameters, GetParametersRes, Status, Code
 import pickle
+import numpy as np
 # class FederatedRSFClient(NumPyClient):
 #     def __init__(self, cid, name, model, config, dataloaders):
 #         self.cid = cid
@@ -124,19 +125,31 @@ class FederatedRSFClient(Client):
         # Case 1: Round 0 → send event times
         if ins.config.get("send_event_times", False):
             event_times = self.y_train["time"][self.y_train["event"]].astype(float)
+
+            # DEBUG: print event times
+            ev = event_times
+            print(f"[DEBUG][Client {self.cid}] Sending event times ({len(ev)} events)")
+            print(f"       min={ev.min():.3f}, max={ev.max():.3f}")
+            print(f"       sample={np.sort(ev)[:5]}")
+
             return fl.common.FitRes(
-                status=fl.common.Status(code=fl.common.Code.OK),
+                status=fl.common.Status(code=fl.common.Code.OK, message= "OK"),
                 parameters=fl.common.ndarrays_to_parameters([event_times]),
                 num_examples=len(event_times),
                 metrics={}
             )
 
-        # Case 2: Normal RSF training
+        # Case 2: Normal RSF training --> Round 1
+        if len(ins.parameters.tensors) == 1:
+            global_times = pickle.loads(ins.parameters.tensors[0])
+            print(f"[DEBUG][Client {self.cid}] Received global time grid ({len(global_times)} times)")
+            self.model.set_global_time_grid(global_times)  # TAKE GLOBAL GRID TIMES
+
         self.model.fit(self.X_train, self.y_train)
         trees = self.model.estimators_
 
         return FitRes(
-            status=Status(code=Code.OK),
+            status=Status(code=Code.OK, message="OK"),
             parameters=Parameters(
                 tensors=[pickle.dumps(trees)],
                 tensor_type="pickle",
@@ -178,7 +191,7 @@ class FederatedRSFClient(Client):
         )
 
         return fl.common.EvaluateRes(
-            status=fl.common.Status(code=fl.common.Code.OK),
+            status=fl.common.Status(code=fl.common.Code.OK, message="OK"),
             loss=0.0,
             num_examples=len(self.X_test),
             metrics=metrics
@@ -189,3 +202,5 @@ class FederatedRSFClient(Client):
         """Return client training event times for global synchronization."""
         times = self.y_train["time"][self.y_train["event"]].astype(float).tolist()
         return times
+
+    
