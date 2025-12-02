@@ -129,28 +129,253 @@ from flwr.server.strategy import FedAvg
 import pickle
 
 
-class FedSurvForest(FedAvg):
-    """
-    Federated Survival Forest (Simple version)
+# class FedSurvForest(FedAvg):
+#     """
+#     Federated Survival Forest (Simple version)
 
-    - Client-proportional sampling
-    - Tree-per-client budget correction
-    - Uniform tree sampling inside each client
+#     - Client-proportional sampling
+#     - Tree-per-client budget correction
+#     - Uniform tree sampling inside each client
+#     """
+
+#     def __init__(
+#         self,
+#         fraction_fit=1.0,
+#         fraction_evaluate=1.0,
+#         min_fit_clients=3,
+#         min_evaluate_clients=3,
+#         min_available_clients=3,
+#         num_trees_fed=None,     
+#     ):
+#         # store custom argument
+#         self.num_trees_fed = num_trees_fed
+
+#         # call FedAvg init with ONLY allowed arguments
+#         super().__init__(
+#             fraction_fit=fraction_fit,
+#             fraction_evaluate=fraction_evaluate,
+#             min_fit_clients=min_fit_clients,
+#             min_evaluate_clients=min_evaluate_clients,
+#             min_available_clients=min_available_clients,
+#         )
+
+
+#     def aggregate_fit(self, server_round, results, failures):
+#         logger = logging.getLogger("main")
+
+#         # ==============================================================
+#         # ROUND 0: Ask clients to send event-time arrays only
+#         # ==============================================================
+
+#         if server_round == 1:
+#             print(f"[DEBUG][Server] Round 1 aggregate_fit START — receiving event times from clients")
+
+#             all_times = []
+
+#             # --- DEBUG client event times received ---
+#             for cid, (_, fit_res) in enumerate(results):
+#                 arr = fl.common.parameters_to_ndarrays(fit_res.parameters)[0]
+
+#                 print(f"[DEBUG][Server] Received times from client {cid}: count={len(arr)}")
+#                 if len(arr) > 0:
+#                     print(f"       min={arr.min():.3f}, max={arr.max():.3f}")
+#                     print(f"       sample={np.sort(arr)[:5]}")
+
+#                 all_times.extend(arr.tolist())
+
+#             # Build global grid:
+#             self.global_event_times = np.unique(all_times)
+#             g = self.global_event_times
+
+#             print(f"[DEBUG][Server] GLOBAL EVENT GRID computed: {len(g)} points")
+#             if len(g) > 0:
+#                 print(f"       min={g.min():.3f}, max={g.max():.3f}")
+#                 print(f"       sample first 10: {g[:10]}")
+
+#             import pickle
+
+#             return (
+#                 fl.common.Parameters(
+#                     tensors=[
+#                         pickle.dumps([]),               # empty forest placeholder
+#                         pickle.dumps(self.global_event_times),  # real global grid
+#                     ],
+#                     tensor_type="pickle",
+#                 ),
+#                 {}
+#             )
+
+
+#         if server_round == 2:
+#             print(f"[DEBUG][Server] aggregate_fit ROUND 2 — aggregating RSF trees")
+
+#             if not results:
+#                 logger.error("[Server] No results for round 2")
+#                 return None, {}
+
+#             # ---- Extract trees ----
+#             client_trees = []
+#             client_sizes = []
+
+#             #for _, fit_res in results:
+#             for client_proxy, fit_res in results:
+#                 cid = client_proxy.cid
+#                 import pickle
+#                 trees = pickle.loads(fit_res.parameters.tensors[0])
+#                 print(f"[SERVER-DEBUG] Client {cid} sent {len(trees)} trees")
+#                 #print(f"               First tree time len = {len(trees[0].event_times_)}")
+
+#                 client_trees.append(trees)
+#                 client_sizes.append(fit_res.num_examples)
+
+#             # ---- Probabilities ----
+#             client_sizes = np.array(client_sizes, dtype=float)
+#             total_samples = client_sizes.sum()
+#             client_probs = client_sizes / total_samples
+
+#             # ---- Determine N trees ----
+#             total_available = sum(len(t) for t in client_trees)
+#             NS = total_available if self.num_trees_fed is None else min(self.num_trees_fed, total_available)
+
+#             # ---- Sample trees ----
+#             sampled_clients = np.random.choice(len(client_trees), size=NS, p=client_probs)
+#             trees_per_client = np.array([np.sum(sampled_clients == j) for j in range(len(client_trees))])
+
+#             # Fix deficits
+#             actual_available = np.array([len(t) for t in client_trees])
+#             diff = actual_available - trees_per_client
+
+#             import copy
+#             while (diff < 0).any():
+#                 deficit = np.random.choice(np.where(diff < 0)[0])
+#                 surplus = np.random.choice(np.where(diff > 0)[0])
+#                 trees_per_client[deficit] -= 1
+#                 trees_per_client[surplus] += 1
+#                 diff = actual_available - trees_per_client
+
+#             # ---- Build global forest ----
+#             federated_trees = []
+#             for cid, n in enumerate(trees_per_client):
+#                 pool = client_trees[cid]
+#                 if n > 0:
+#                     chosen = np.random.choice(pool, size=n, replace=False)
+#                     federated_trees.extend([copy.deepcopy(t) for t in chosen])
+
+#             # ---- Send aggregated trees ----
+#             import pickle
+#             return (
+#                 fl.common.Parameters(
+#                     tensors=[
+#                         pickle.dumps(federated_trees),
+#                         pickle.dumps(self.global_event_times),
+#                     ],
+#                     tensor_type="pickle",
+#                 ),
+#                 {}
+#             )
+
+#         # ROUND ≥3 (Flower): No training — only evaluation happens
+#         print(f"[DEBUG][Server] aggregate_fit ROUND {server_round} — nothing to aggregate")
+#         return None, {}
+
+
+#     def configure_fit(self, server_round, parameters, client_manager):
+#         # I HAVE TO HANDLE ROUND 0, BC FLOWER INTERNALLY ALWAYS CALLS ROUND 0
+#         if server_round == 0:
+#             print("[DEBUG][Server] configure_fit: ROUND 0 (Flower init) — do NOTHING")
+#             return []    # no clients should run in round 0
+
+#         # ROUND 1 → clients send ONLY event times
+#         if server_round == 1:
+#             print("[DEBUG][Server] configure_fit: ROUND 1 request event times")
+
+#              # Sample clients through Flower
+#             # sample = client_manager.sample(
+#             #     num_clients=self.min_fit_clients,
+#             #     min_num_clients=self.min_fit_clients,
+#             # )
+#             sample = list(client_manager.all().values())
+
+#             # Return list of (client_proxy, FitIns)
+#             fit_ins = fl.common.FitIns(
+#                 parameters=fl.common.Parameters(tensors=[], tensor_type=""),
+#                 config={"send_event_times": True},
+#             )
+
+#             return [(client, fit_ins) for client in sample]
+
+#         # ROUND 2 → local training (normal RSF training)
+#         if server_round == 2:
+#             print("[DEBUG][Server] configure_fit: ROUND 2 local RSF training")
+#             # Sample clients again
+#             sample = list(client_manager.all().values())
+
+#             # Send the global event grid to clients BEFORE they train
+#             fit_ins = fl.common.FitIns(
+#                 parameters=fl.common.Parameters(
+#                     tensors=[pickle.dumps(self.global_event_times)],
+#                     tensor_type="pickle",
+#                 ),
+#                 config={}
+#             )
+
+#             # Return instructions for each selected client
+#             return [(client, fit_ins) for client in sample]
+
+
+#         # ROUND ≥3 → NO MORE TRAINING
+#         print("[DEBUG][Server] configure_fit: ROUND ≥3 no more training")
+#         return []
+
+#     def configure_evaluate(self, server_round, parameters, client_manager):
+#         # Disable evaluation until after global forest exists
+#         if server_round <= 2:
+#             print("[DEBUG][Server] configure_evaluate: disabled")
+#             return []
+#         print("[DEBUG][Server] configure_evaluate: enabled")
+#         return super().configure_evaluate(server_round, parameters, client_manager)
+
+#     def evaluate(self, server_round, parameters):
+#         # Disable server-side evaluation in rounds 0 and 1
+#         if server_round < 2:
+#             return None  # no server evaluation
+#         return super().evaluate(server_round, parameters)
+
+#     def initialize_parameters(self, client_manager):
+#         # Disable default "initial model request"
+#         print("[DEBUG][Server] initialize_parameters() called → returning EMPTY parameters")
+#         import pickle
+#         return fl.common.Parameters(
+#             tensors=[], tensor_type="pickle"
+#         )
+
+# Training_Modes/Federated_Learning/strategies.py (FedSurvForest)
+import flwr as fl
+import numpy as np
+import pickle
+import copy
+import logging
+
+class FedSurvForest(fl.server.strategy.FedAvg):
+    """
+    Correct FedSurF implementation for Flower:
+      - Round 1: clients train RSF and return trees
+      - Server: weighted random sampling of trees
+      - Round 2+: evaluation only
     """
 
     def __init__(
         self,
         fraction_fit=1.0,
         fraction_evaluate=1.0,
-        min_fit_clients=3,
-        min_evaluate_clients=3,
-        min_available_clients=3,
-        num_trees_fed=None,     
+        min_fit_clients=1,
+        min_evaluate_clients=1,
+        min_available_clients=1,
+        num_trees_fed=None,
     ):
-        # store custom argument
+
         self.num_trees_fed = num_trees_fed
 
-        # call FedAvg init with ONLY allowed arguments
         super().__init__(
             fraction_fit=fraction_fit,
             fraction_evaluate=fraction_evaluate,
@@ -159,227 +384,99 @@ class FedSurvForest(FedAvg):
             min_available_clients=min_available_clients,
         )
 
-
+    # -------------------------------------------------------------
+    # ROUND 1: aggregate RSF trees
+    # -------------------------------------------------------------
     def aggregate_fit(self, server_round, results, failures):
+
         logger = logging.getLogger("main")
 
-        # ==============================================================
-        # ROUND 0: Ask clients to send event-time arrays only
-        # ==============================================================
-
         if server_round == 1:
-            print(f"[DEBUG][Server] Round 1 aggregate_fit START — receiving event times from clients")
+            logger.info("[Server] ROUND 1: Aggregating local RSF forests")
 
-            all_times = []
-
-            # --- DEBUG client event times received ---
-            for cid, (_, fit_res) in enumerate(results):
-                arr = fl.common.parameters_to_ndarrays(fit_res.parameters)[0]
-
-                print(f"[DEBUG][Server] Received times from client {cid}: count={len(arr)}")
-                if len(arr) > 0:
-                    print(f"       min={arr.min():.3f}, max={arr.max():.3f}")
-                    print(f"       sample={np.sort(arr)[:5]}")
-
-                all_times.extend(arr.tolist())
-
-            # Build global grid:
-            self.global_event_times = np.unique(all_times)
-            g = self.global_event_times
-
-            print(f"[DEBUG][Server] GLOBAL EVENT GRID computed: {len(g)} points")
-            if len(g) > 0:
-                print(f"       min={g.min():.3f}, max={g.max():.3f}")
-                print(f"       sample first 10: {g[:10]}")
-
-            import pickle
-
-            return (
-                fl.common.Parameters(
-                    tensors=[
-                        pickle.dumps([]),               # empty forest placeholder
-                        pickle.dumps(self.global_event_times),  # real global grid
-                    ],
-                    tensor_type="pickle",
-                ),
-                {}
-            )
-
-
-        if server_round == 2:
-            print(f"[DEBUG][Server] aggregate_fit ROUND 2 — aggregating RSF trees")
-
-            if not results:
-                logger.error("[Server] No results for round 2")
-                return None, {}
-
-            # ---- Extract trees ----
-            client_trees = []
+            # collect trees + sample counts
+            all_trees = []
             client_sizes = []
 
-            #for _, fit_res in results:
-            for client_proxy, fit_res in results:
-                cid = client_proxy.cid
-                import pickle
+            for client, fit_res in results:
                 trees = pickle.loads(fit_res.parameters.tensors[0])
-                print(f"[SERVER-DEBUG] Client {cid} sent {len(trees)} trees")
-                #print(f"               First tree time len = {len(trees[0].event_times_)}")
-
-                client_trees.append(trees)
+                all_trees.append(trees)
                 client_sizes.append(fit_res.num_examples)
 
-            # ---- Probabilities ----
-            client_sizes = np.array(client_sizes, dtype=float)
+            client_sizes = np.array(client_sizes)
             total_samples = client_sizes.sum()
-            client_probs = client_sizes / total_samples
+            probs = client_sizes / total_samples
 
-            # ---- Determine N trees ----
-            total_available = sum(len(t) for t in client_trees)
-            NS = total_available if self.num_trees_fed is None else min(self.num_trees_fed, total_available)
+            # number of global trees
+            total_local = sum(len(tlist) for tlist in all_trees)
+            NS = total_local if self.num_trees_fed is None else min(self.num_trees_fed, total_local)
 
-            # ---- Sample trees ----
-            sampled_clients = np.random.choice(len(client_trees), size=NS, p=client_probs)
-            trees_per_client = np.array([np.sum(sampled_clients == j) for j in range(len(client_trees))])
+            # sample client assignments
+            sampled_clients = np.random.choice(
+                len(all_trees), size=NS, p=probs
+            )
 
-            # Fix deficits
-            actual_available = np.array([len(t) for t in client_trees])
-            diff = actual_available - trees_per_client
+            trees_per_client = [
+                np.sum(sampled_clients == cid)
+                for cid in range(len(all_trees))
+            ]
 
-            import copy
+            # ensure no client is asked for more trees than it has
+            actual_avail = np.array([len(tl) for tl in all_trees])
+            diff = actual_avail - trees_per_client
             while (diff < 0).any():
                 deficit = np.random.choice(np.where(diff < 0)[0])
                 surplus = np.random.choice(np.where(diff > 0)[0])
                 trees_per_client[deficit] -= 1
                 trees_per_client[surplus] += 1
-                diff = actual_available - trees_per_client
+                diff = actual_avail - trees_per_client
 
-            # ---- Build global forest ----
-            federated_trees = []
+            # -----------------------------------------------------
+            # build global forest
+            # -----------------------------------------------------
+            global_forest = []
             for cid, n in enumerate(trees_per_client):
-                pool = client_trees[cid]
-                if n > 0:
-                    chosen = np.random.choice(pool, size=n, replace=False)
-                    federated_trees.extend([copy.deepcopy(t) for t in chosen])
+                pool = all_trees[cid]
+                chosen = np.random.choice(pool, size=n, replace=False)
+                global_forest.extend([copy.deepcopy(t) for t in chosen])
 
-            # ---- Send aggregated trees ----
-            import pickle
+            logger.info(f"[Server] Global federated forest built: {len(global_forest)} trees")
+
+            # SEND to clients in next round
             return (
                 fl.common.Parameters(
-                    tensors=[
-                        pickle.dumps(federated_trees),
-                        pickle.dumps(self.global_event_times),
-                    ],
-                    tensor_type="pickle",
+                    tensors=[pickle.dumps(global_forest)],
+                    tensor_type="pickle"
                 ),
                 {}
             )
 
-        # ROUND ≥3 (Flower): No training — only evaluation happens
-        print(f"[DEBUG][Server] aggregate_fit ROUND {server_round} — nothing to aggregate")
+        # ---------------------------------------------------------
+        # ALL OTHER ROUNDS: nothing to aggregate
+        # ---------------------------------------------------------
         return None, {}
 
-
+    # -------------------------------------------------------------
+    # configure round-by-round client instructions
+    # -------------------------------------------------------------
     def configure_fit(self, server_round, parameters, client_manager):
-        # I HAVE TO HANDLE ROUND 0, BC FLOWER INTERNALLY ALWAYS CALLS ROUND 0
-        if server_round == 0:
-            print("[DEBUG][Server] configure_fit: ROUND 0 (Flower init) — do NOTHING")
-            return []    # no clients should run in round 0
 
-        # ROUND 1 → clients send ONLY event times
+        # ROUND 1: train local RSF
         if server_round == 1:
-            print("[DEBUG][Server] configure_fit: ROUND 1 request event times")
-
-             # Sample clients through Flower
-            # sample = client_manager.sample(
-            #     num_clients=self.min_fit_clients,
-            #     min_num_clients=self.min_fit_clients,
-            # )
             sample = list(client_manager.all().values())
-
-            # Return list of (client_proxy, FitIns)
             fit_ins = fl.common.FitIns(
                 parameters=fl.common.Parameters(tensors=[], tensor_type=""),
-                config={"send_event_times": True},
-            )
-
-            return [(client, fit_ins) for client in sample]
-
-        # ROUND 2 → local training (normal RSF training)
-        if server_round == 2:
-            print("[DEBUG][Server] configure_fit: ROUND 2 local RSF training")
-            # Sample clients again
-            sample = list(client_manager.all().values())
-
-            # Send the global event grid to clients BEFORE they train
-            fit_ins = fl.common.FitIns(
-                parameters=fl.common.Parameters(
-                    tensors=[pickle.dumps(self.global_event_times)],
-                    tensor_type="pickle",
-                ),
                 config={}
             )
-
-            # Return instructions for each selected client
             return [(client, fit_ins) for client in sample]
 
-
-        # ROUND ≥3 → NO MORE TRAINING
-        print("[DEBUG][Server] configure_fit: ROUND ≥3 no more training")
+        # ROUND >= 2: no training
         return []
 
     def configure_evaluate(self, server_round, parameters, client_manager):
-        # Disable evaluation until after global forest exists
-        if server_round <= 2:
-            print("[DEBUG][Server] configure_evaluate: disabled")
+        if server_round <= 1:
             return []
-        print("[DEBUG][Server] configure_evaluate: enabled")
         return super().configure_evaluate(server_round, parameters, client_manager)
-
-    def evaluate(self, server_round, parameters):
-        # Disable server-side evaluation in rounds 0 and 1
-        if server_round < 2:
-            return None  # no server evaluation
-        return super().evaluate(server_round, parameters)
-
-    def initialize_parameters(self, client_manager):
-        # Disable default "initial model request"
-        print("[DEBUG][Server] initialize_parameters() called → returning EMPTY parameters")
-        import pickle
-        return fl.common.Parameters(
-            tensors=[], tensor_type="pickle"
-        )
-
-    # # FOR ROUND CONTROL:
-    # def configure_round(self, server_round, parameters, client_manager):
-    #     # ---- ROUND 1 behaves like ROUND 0 ----
-    #     if server_round == 1:
-    #         print("[DEBUG][Server] ROUND 1 → Event time collection phase (formerly round 0)")
-    #         return {
-    #             "fit": [
-    #                 fl.server.client_proxy.FitIns(
-    #                     parameters=fl.common.Parameters(tensors=[], tensor_type=""),
-    #                     config={"send_event_times": True}
-    #                 )
-    #                 for _ in range(self.min_fit_clients)
-    #             ],
-    #             "evaluate": []
-    #         }
-
-    #     # ---- ROUND 2 = normal RSF training ----
-    #     if server_round == 2:
-    #         print("[DEBUG][Server] ROUND 2 → Local RSF training")
-    #         return {
-    #             "fit": super().configure_fit(server_round, parameters, client_manager),
-    #             "evaluate": []
-    #         }
-
-    #     # ---- ROUND 3+ = evaluation allowed ----
-    #     print("[DEBUG][Server] ROUND >=3 → evaluation enabled")
-    #     return {
-    #         "fit": super().configure_fit(server_round, parameters, client_manager),
-    #         "evaluate": super().configure_evaluate(server_round, parameters, client_manager),
-    #     }
-
 
 
 

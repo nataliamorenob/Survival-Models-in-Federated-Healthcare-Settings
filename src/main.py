@@ -76,7 +76,7 @@ def main(config: Config):
             model = model_manager.get_model()
 
             if config.model == "RSF":
-                from Training_Modes.Federated_Learning.clientRSF import FederatedRSFClient
+                from Training_Modes.Federated_Learning.clientFedSurF import FederatedRSFClient
                 return FederatedRSFClient(
                     cid=cid_int,
                     name=config.centers[cid_int],
