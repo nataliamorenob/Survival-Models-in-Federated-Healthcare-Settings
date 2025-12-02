@@ -17,10 +17,12 @@ class SurvivalRandomForest:
     def fit(self, X, y):
         # Apply global time grid BEFORE training the forest
         if self.global_event_times is not None:
+            grid = np.asarray(self.global_event_times)
             # Override the RSF internal time grid used by ALL trees
-            self.model.unique_times_ = np.asarray(self.global_event_times)
-            self.model._n_unique_times = len(self.global_event_times)
-            print(f"[DEBUG][Model] Applied global grid with {len(self.global_event_times)} points")
+            self.model.unique_times_ = grid
+            self.model._n_unique_times = len(grid)
+            self.model.event_times_ = grid 
+            print(f"[DEBUG][Model] Applied global grid with {len(grid)} points")
 
         # Train the RSF forest (all trees now consistent)
         self.model.fit(X, y)
@@ -35,31 +37,69 @@ class SurvivalRandomForest:
     def estimators_(self):
         return self.model.estimators_
 
-        
     def set_trees(self, trees, n_features, global_event_times):
         import numpy as np
         from sksurv.util import Surv
 
-        # Create dummy dataset of length == #global time points
+        print(f"[DEBUG][set_trees] Received {len(trees)} trees")
+        #for i, t in enumerate(trees[:10]):   # show only first 10
+            #print(f"    Tree {i}: cumulative_hazard_.shape = {t.cumulative_hazard_.shape}")
+        print("    ...")
+        print(f"    Desired GLOBAL grid len = {len(global_event_times)}")
+        print("-----------------------------------------------------")
+        
+        # Create dummy dataset to initialize structure
         num_times = len(global_event_times)
         X_dummy = np.zeros((num_times, n_features))
         y_dummy = Surv.from_arrays(
-            event=[True] * num_times,     # dummy event for each time
-            time=global_event_times
+            event=[True] * num_times,
+            time=global_event_times,
         )
 
-        # Fit once to initialize event_times_ and internal structures
+        # Fit once to initialize RSF internals
         self.model.fit(X_dummy, y_dummy)
+
+        # Override ALL internal time attributes with the global grid
+        grid = np.asarray(global_event_times)
+        self.model.unique_times_   = grid
+        self.model._n_unique_times = len(grid)
+        self.model.event_times_    = grid     # <-- ALSO CRITICAL
 
         # Inject trees
         self.model.estimators_ = trees
         self.model.n_features_in_ = n_features
-        self.model.event_times_ = np.array(global_event_times)
 
         print(f"[Client] Loaded federated RSF ({len(trees)} trees) with global grid size {num_times}")
     
     def set_global_time_grid(self, global_times):
+        # Store the global grid for use in next fit()
         self.global_event_times = np.array(global_times)
+        print(f"[DEBUG][Model] Stored global time grid ({len(self.global_event_times)} points)")
+
+        
+    # def set_trees(self, trees, n_features, global_event_times):
+    #     import numpy as np
+    #     from sksurv.util import Surv
+
+    #     # Create dummy dataset of length == #global time points
+    #     num_times = len(global_event_times)
+    #     X_dummy = np.zeros((num_times, n_features))
+    #     y_dummy = Surv.from_arrays(
+    #         event=[True] * num_times,     # dummy event for each time
+    #         time=global_event_times
+    #     )
+
+    #     # Fit once to initialize event_times_ and internal structures
+    #     self.model.fit(X_dummy, y_dummy)
+
+    #     # Inject trees
+    #     self.model.estimators_ = trees
+    #     self.model.n_features_in_ = n_features
+    #     self.model.event_times_ = np.array(global_event_times)
+
+    #     print(f"[Client] Loaded federated RSF ({len(trees)} trees) with global grid size {num_times}")
+    
+
 
     
     # def set_trees(self, trees):

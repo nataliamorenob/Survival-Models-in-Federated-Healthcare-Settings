@@ -177,6 +177,7 @@ class FederatedRSFClient(Client):
             n_features=n_features,
             global_event_times=global_event_times)
 
+        self.model.set_global_time_grid(global_event_times)
 
         metrics = evaluate_rsf(
             model=self.model,

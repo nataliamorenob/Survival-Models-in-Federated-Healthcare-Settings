@@ -217,9 +217,14 @@ class FedSurvForest(FedAvg):
             client_trees = []
             client_sizes = []
 
-            for _, fit_res in results:
+            #for _, fit_res in results:
+            for client_proxy, fit_res in results:
+                cid = client_proxy.cid
                 import pickle
                 trees = pickle.loads(fit_res.parameters.tensors[0])
+                print(f"[SERVER-DEBUG] Client {cid} sent {len(trees)} trees")
+                #print(f"               First tree time len = {len(trees[0].event_times_)}")
+
                 client_trees.append(trees)
                 client_sizes.append(fit_res.num_examples)
 
@@ -285,10 +290,11 @@ class FedSurvForest(FedAvg):
             print("[DEBUG][Server] configure_fit: ROUND 1 request event times")
 
              # Sample clients through Flower
-            sample = client_manager.sample(
-                num_clients=self.min_fit_clients,
-                min_num_clients=self.min_fit_clients,
-            )
+            # sample = client_manager.sample(
+            #     num_clients=self.min_fit_clients,
+            #     min_num_clients=self.min_fit_clients,
+            # )
+            sample = list(client_manager.all().values())
 
             # Return list of (client_proxy, FitIns)
             fit_ins = fl.common.FitIns(
@@ -302,10 +308,7 @@ class FedSurvForest(FedAvg):
         if server_round == 2:
             print("[DEBUG][Server] configure_fit: ROUND 2 local RSF training")
             # Sample clients again
-            sample = client_manager.sample(
-                num_clients=self.min_fit_clients,
-                min_num_clients=self.min_fit_clients,
-            )
+            sample = list(client_manager.all().values())
 
             # Send the global event grid to clients BEFORE they train
             fit_ins = fl.common.FitIns(
