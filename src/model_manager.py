@@ -1,7 +1,7 @@
 from Models.CustomCoxModel import CustomCoxModel
 from Models.CoxPH import CoxPH_model
 from Models.StackedLogisticRegression import StackedLogisticRegression
-from Models.FederatedSurvivalForest import SurvivalRandomForest
+from Models.FedSurF import SurvivalRandomForest
 
 class ModelManager:
     def __init__(self, config):

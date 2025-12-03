@@ -28,12 +28,34 @@ class SurvivalRandomForest:
         """Return trained local trees."""
         return self.model.estimators_
 
-    def set_trees(self, trees, n_features):
-        """
-        Load a federated global forest made of trees from many clients.
-        """
-        self.model.estimators_ = trees
-        self.model.n_features_in_ = n_features
 
     def predict_survival_function(self, X):
         return self.model.predict_survival_function(X)
+
+    def set_trees(self, trees, n_features):
+        """
+        Load a federated global forest made of trees from many clients.
+        A dummy fit is required to initialize RSF internal attributes.
+        """
+        import numpy as np
+        from sksurv.util import Surv
+
+        # 1) Dummy tiny dataset to initialize RSF internals:
+        # one sample, one fake time, event=True
+        X_dummy = np.zeros((2, n_features))
+        y_dummy = Surv.from_arrays(event=[True, True], time=[1.0, 2.0])
+
+        # this creates n_outputs_, unique_times_, event_times_, etc.
+        self.model.fit(X_dummy, y_dummy)
+
+        # 2) Inject trees AFTER initialization:
+        self.model.estimators_ = trees
+        self.model.n_features_in_ = n_features
+
+
+    # def set_trees(self, trees, n_features):
+    #     """
+    #     Load a federated global forest made of trees from many clients.
+    #     """
+    #     self.model.estimators_ = trees
+    #     self.model.n_features_in_ = n_features

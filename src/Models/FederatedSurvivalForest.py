@@ -1,7 +1,7 @@
 from sksurv.ensemble import RandomSurvivalForest
 import numpy as np
 
-class SurvivalRandomForest:
+class SurvivalRandomForestOld:
     def __init__(self, n_estimators=100, min_samples_split=10, min_samples_leaf=15, random_state=None):
         self.model = RandomSurvivalForest(
             n_estimators=n_estimators,
