@@ -1,6 +1,8 @@
 # Models/FederatedSurvivalForest.py
 from sksurv.ensemble import RandomSurvivalForest
 import numpy as np
+from scipy.interpolate import interp1d
+
 
 class SurvivalRandomForest:
     """
@@ -51,6 +53,68 @@ class SurvivalRandomForest:
         # 2) Inject trees AFTER initialization:
         self.model.estimators_ = trees
         self.model.n_features_in_ = n_features
+
+    def predict_survival_function_fedsurf(self, X):
+        """
+        FedSurF-style prediction:
+          - predict survival via individual trees
+          - collect all time grids
+          - build union grid
+          - interpolate each tree fn
+          - average them
+        """
+
+        trees = self.model.estimators_
+        n_trees = len(trees)
+        n_samples = X.shape[0]
+
+        # ----------------------------------------------------
+        # 1) Get tree-level predictions (each tree has its own time grid)
+        # ----------------------------------------------------
+        tree_survs = []
+        tree_times = []
+
+        for t in trees:
+            surv_fns = t.predict_survival_function(X)  # list length n_samples
+            tree_survs.append(surv_fns)
+            tree_times.append(t.unique_times_)  # each tree has its own grid
+        # tree_survs[j][i] = survival curve from tree j for sample i
+        # tree_times[j] = time grid of tree j
+
+
+        # ----------------------------------------------------
+        # 2) Build the global union of all time grids
+        # ----------------------------------------------------
+        global_times = np.unique(np.concatenate(tree_times))
+
+        # ----------------------------------------------------
+        # 3) Interpolate each tree's survival curve to global grid
+        # ----------------------------------------------------
+        out_surv = []
+
+        for i in range(n_samples):
+
+            # store all interpolated curves from all trees
+            curves = []
+
+            for j in range(n_trees):
+                fn = tree_survs[j][i]       # survival_function object
+                t_local = tree_times[j]
+                s_local = fn(t_local)
+
+                # monotonic interpolation
+                f = interp1d(
+                    t_local, s_local, kind="previous", bounds_error=False,
+                    fill_value=(1.0, s_local[-1])
+                )
+
+                curves.append(f(global_times))
+
+            # average survival curve over trees
+            mean_curve = np.mean(curves, axis=0)
+            out_surv.append((global_times, mean_curve))
+
+        return out_surv
 
 
     # def set_trees(self, trees, n_features):

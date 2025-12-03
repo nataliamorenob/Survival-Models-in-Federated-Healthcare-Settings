@@ -390,6 +390,8 @@ class FedSurvForest(fl.server.strategy.FedAvg):
     def aggregate_fit(self, server_round, results, failures):
 
         logger = logging.getLogger("main")
+        logger.info(f"[SERVER] Round {server_round}: Aggregating FIT results")
+        logger.info(f"  {len(results)} clients returned")
 
         if server_round == 1:
             logger.info("[Server] ROUND 1: Aggregating local RSF forests")
@@ -478,6 +480,23 @@ class FedSurvForest(fl.server.strategy.FedAvg):
             return []
         return super().configure_evaluate(server_round, parameters, client_manager)
 
+
+    def aggregate_evaluate(self, server_round, results, failures):
+        logger = logging.getLogger("main")
+        logger.info(f"[SERVER] Round {server_round}: Aggregating EVALUATION")
+
+        for _, eval_res in results:
+            cid = eval_res.metrics["cid"]
+            m = eval_res.metrics
+            logger.info(
+                f"[FedSurF][Client {cid}] "
+                f"C-index={m['C-index']:.4f} | "
+                f"AUC={m['AUC']:.4f} | "
+                f"IBS={m['IBS']:.4f}"
+            )
+
+        # Keep original behavior
+        return super().aggregate_evaluate(server_round, results, failures)
 
 
 

@@ -4,6 +4,7 @@ import pickle
 from flwr.common import FitRes, EvaluateRes, Parameters, Status, Code
 from utils import evaluate_rsf   # you already have this
 import numpy as np
+from scipy.interpolate import interp1d
 
 class FederatedRSFClient(fl.client.Client):
 
@@ -28,11 +29,14 @@ class FederatedRSFClient(fl.client.Client):
     # FIT: train local RSF and send trees to server
     # ---------------------------------------------------------
     def fit(self, ins):
+        print(f"[DEBUG][Client {self.cid}] Starting FIT")
 
-        # train local RSF
+        # train local RSF:
         self.model.fit(self.X_train, self.y_train)
         trees = self.model.estimators_
 
+        print(f"[DEBUG][Client {self.cid}] RSF trained, sending {len(self.model.estimators_)} trees")
+    
         return FitRes(
             status=Status(Code.OK, message="OK"),
             parameters=Parameters(
@@ -47,9 +51,11 @@ class FederatedRSFClient(fl.client.Client):
     # EVALUATE: load global forest and compute metrics
     # ---------------------------------------------------------
     def evaluate(self, ins):
+        print(f"[DEBUG][Client {self.cid}] Starting EVALUATE")
 
         # server sends: [global_trees]
         federated_trees = pickle.loads(ins.parameters.tensors[0])
+        print(f"[DEBUG][Client {self.cid}] Loaded global forest with {len(federated_trees)} trees")
 
         # load global forest
         n_features = self.X_train.shape[1]
@@ -66,6 +72,9 @@ class FederatedRSFClient(fl.client.Client):
             client_id=self.cid,
             config=self.config,
         )
+        metrics["cid"] = self.cid
+
+        print(f"[DEBUG][Client {self.cid}] Evaluation finished → {metrics}")
 
         return EvaluateRes(
             status=Status(Code.OK, message="OK"),
