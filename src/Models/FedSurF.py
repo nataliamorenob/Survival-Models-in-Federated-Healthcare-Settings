@@ -68,9 +68,7 @@ class SurvivalRandomForest:
         n_trees = len(trees)
         n_samples = X.shape[0]
 
-        # ----------------------------------------------------
         # 1) Get tree-level predictions (each tree has its own time grid)
-        # ----------------------------------------------------
         tree_survs = []
         tree_times = []
 
@@ -82,14 +80,10 @@ class SurvivalRandomForest:
         # tree_times[j] = time grid of tree j
 
 
-        # ----------------------------------------------------
         # 2) Build the global union of all time grids
-        # ----------------------------------------------------
         global_times = np.unique(np.concatenate(tree_times))
 
-        # ----------------------------------------------------
         # 3) Interpolate each tree's survival curve to global grid
-        # ----------------------------------------------------
         out_surv = []
 
         for i in range(n_samples):

@@ -47,9 +47,9 @@ class FederatedRSFClient(fl.client.Client):
             metrics={}
         )
 
-    # ---------------------------------------------------------
-    # EVALUATE: load global forest and compute metrics
-    # ---------------------------------------------------------
+
+    # EVALUATE: load global forest and compute metrics:
+
     def evaluate(self, ins):
         print(f"[DEBUG][Client {self.cid}] Starting EVALUATE")
 

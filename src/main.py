@@ -169,9 +169,9 @@ if __name__ == "__main__":
     # Define user-specific configuration
     user_config = Config(
         model="RSF",
-        centers=[0, 1, 2],
+        centers=[0, 1, 2, 3],
         training_mode="federated",
-        num_clients=3,
+        num_clients=4,
         strategy="FedSurvForest",
         num_rounds=2,
     )

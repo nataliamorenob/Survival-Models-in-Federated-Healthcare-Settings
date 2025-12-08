@@ -701,10 +701,9 @@ def evaluate_rsf(model, data, client_id, config):
             f"[Client {client_id}] Eval times ({len(eval_times)} points): {eval_times}"
         )
         
-    # ----------------------------------------------------
+  
     # 1) FedSurF prediction
     #    returns: list of (times, survival_values)
-    # ----------------------------------------------------
     surv_fns = model.predict_survival_function_fedsurf(X_test)
 
     # convert to matrix of survival probabilities at eval_times
@@ -718,14 +717,29 @@ def evaluate_rsf(model, data, client_id, config):
                      fill_value=(1.0, s[-1]))
         surv_probs[i, :] = f(eval_times)
 
-    # ----------------------------------------------------
-    # Compute metrics (unchanged)
-    # ----------------------------------------------------
+
+    # Compute metrics 
     test_events = y_test["event"].astype(bool)
     test_times = y_test["time"].astype(float)
 
+    # DEBUG PRINTS: test label statistics
+    print(f"\n[DEBUG][Client {client_id}] Event count: {sum(test_events)} / {len(test_events)}")
+    print(f"[DEBUG][Client {client_id}] Censoring rate: {1 - sum(test_events)/len(test_events):.2f}")
+    print(f"[DEBUG][Client {client_id}] Test time range: min={test_times.min()}, max={test_times.max()}")
+    print(f"[DEBUG][Client {client_id}] Train time range: [{y_train['time'].min()}, {y_train['time'].max()}]\n")
+
+
     # risk scores
-    risk_scores = -surv_probs[:, 0]
+    #risk_scores = -surv_probs[:, -1]
+    risk_scores = -np.trapz(surv_probs, eval_times, axis=1)
+
+
+    #DEBUG PRINTS: survival curve stability 
+    print(f"[DEBUG][Client {client_id}] Survival at last eval_time:")
+    print(f"    min={surv_probs[:, -1].min():.4f}, max={surv_probs[:, -1].max():.4f}")
+    print(f"[DEBUG][Client {client_id}] Survival at first eval_time:")
+    print(f"    min={surv_probs[:, 0].min():.4f}, max={surv_probs[:, 0].max():.4f}\n")
+
 
     # C-index
     try:

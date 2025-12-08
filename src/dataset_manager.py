@@ -322,16 +322,33 @@ class DatasetManager:
             # ---------------------------------------------
             # Compute client-specific evaluation times
             # ---------------------------------------------
-            event_times = df_test.loc[df_test["event"] == 1, "time"].values
+            # event_times = df_test.loc[df_test["event"] == 1, "time"].values
 
-            if len(event_times) > 1:
-                eval_times = np.quantile(event_times, np.linspace(0.1, 0.9, 20))
+            # if len(event_times) > 1:
+            #     eval_times = np.quantile(event_times, np.linspace(0.1, 0.9, 20))
+            # else:
+            #     mint, maxt = df_test["time"].min(), df_test["time"].max()
+            #     eval_times = np.linspace(mint, maxt, 20)
+
+            # eval_times = np.unique(eval_times)
+            # dataloaders[center]["eval_times"] = eval_times
+
+
+
+            # NEW CORRECTION BC C-INDEX LOW --> Use TRAINING event times, not test events:
+            train_event_times = df_train.loc[df_train["event"] == 1, "time"].values
+
+            if len(train_event_times) > 1:
+                # Use quantiles of TRAINING events — avoids early/late flat survival
+                eval_times = np.quantile(train_event_times, np.linspace(0.05, 0.95, 50))
             else:
-                mint, maxt = df_test["time"].min(), df_test["time"].max()
-                eval_times = np.linspace(mint, maxt, 20)
+                # Fallback to the training range
+                mint, maxt = df_train["time"].min(), df_train["time"].max()
+                eval_times = np.linspace(mint, maxt, 50)
 
             eval_times = np.unique(eval_times)
             dataloaders[center]["eval_times"] = eval_times
+
 
             # also store globally in the config
             if not hasattr(self.config, "eval_times_per_client"):
