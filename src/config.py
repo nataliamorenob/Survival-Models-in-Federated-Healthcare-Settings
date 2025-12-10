@@ -42,6 +42,10 @@ class Config:
     # Metrics specific parameters
     #global_eval_times: list = field(default_factory=lambda: [100, 489, 878, 1267, 1656, 2044, 2433, 2822, 3211, 3500])
     eval_times_per_client: dict = field(default_factory=dict) # 
+    eval_grid_mode: str = "client"  # "client" or "global"
+    global_eval_times: list = None
+
+
 
     # RANDOM SURVIVAL FOREST ALGORITHM PARAMETERS (DEFAULT FOR NOW, BUT TUNE IN THE FUTURE):
     n_trees_local: int = 20 # number of trees each client trains (in the future hyperparameter tuning)

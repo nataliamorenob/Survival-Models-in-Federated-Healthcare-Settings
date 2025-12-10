@@ -354,6 +354,13 @@ class DatasetManager:
             if not hasattr(self.config, "eval_times_per_client"):
                 self.config.eval_times_per_client = {}
             self.config.eval_times_per_client[self.client_idx] = eval_times.tolist()
+            
+            # NEW --> In order to create a global grid
+            if self.config.eval_grid_mode == "global":
+                if not hasattr(self.config, "all_train_event_times"):
+                    self.config.all_train_event_times = []
+                self.config.all_train_event_times.extend(train_event_times.tolist())
+                
 
             self.log_and_print(
                 f"[Center {center}] RSF eval_times stored: {np.round(eval_times, 2)}"
