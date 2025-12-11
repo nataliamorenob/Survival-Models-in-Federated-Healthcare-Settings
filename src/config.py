@@ -44,6 +44,7 @@ class Config:
     eval_times_per_client: dict = field(default_factory=dict) # 
     eval_grid_mode: str = "client"  # "client" or "global"
     global_eval_times: list = None
+    union_time_grid: list = None
 
 
 

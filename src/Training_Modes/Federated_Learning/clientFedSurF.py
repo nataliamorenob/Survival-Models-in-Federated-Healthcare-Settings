@@ -22,34 +22,37 @@ class FederatedRSFClient(fl.client.Client):
         self.X_test  = data["X_test"]
         self.y_test  = data["y_test"]
 
-        # client-specific evaluation times
+        # client-specific evaluation times: (old)
         #self.eval_times = np.array(config.eval_times_per_client[cid])
-        # NEW --> GLOBAL OR CLIENT SPECIFIC EVAL TIME GRID
-        if config.eval_grid_mode == "client":
-            self.eval_times = np.array(config.eval_times_per_client[cid])
 
-        elif config.eval_grid_mode == "global":
-            self.eval_times = np.array(config.global_eval_times)
 
-        else:
-            raise ValueError("Unknown eval_grid_mode: must be 'client' or 'global'")    
 
-        #DEBUG EVAL_TIMES:
-        print(f"[DEBUG][Client {self.cid}] eval_grid_mode = {config.eval_grid_mode}")
-        print(f"[DEBUG][Client {self.cid}] Raw eval_times BEFORE np.array constructor:")
+        # # NEW --> GLOBAL OR CLIENT SPECIFIC EVAL TIME GRID
+        # if config.eval_grid_mode == "client":
+        #     self.eval_times = np.array(config.eval_times_per_client[cid])
 
-        if config.eval_grid_mode == 'client':
-            print(type(config.eval_times_per_client[self.cid]), config.eval_times_per_client[self.cid])
-        elif config.eval_grid_mode == 'global':
-            print(type(config.global_eval_times), config.global_eval_times)
+        # elif config.eval_grid_mode == "global":
+        #     self.eval_times = np.array(config.global_eval_times)
 
-        print(f"[DEBUG][Client {self.cid}] Final self.eval_times type={type(self.eval_times)}, len attempt...")
+        # else:
+        #     raise ValueError("Unknown eval_grid_mode: must be 'client' or 'global'")    
 
-        try:
-            print(f"[DEBUG][Client {self.cid}] len(self.eval_times) = {len(self.eval_times)}")
-        except Exception as e:
-            print(f"[ERROR][Client {self.cid}] self.eval_times HAS NO LENGTH! Type={type(self.eval_times)}, value={self.eval_times}")
-            raise e
+        # #DEBUG EVAL_TIMES:
+        # print(f"[DEBUG][Client {self.cid}] eval_grid_mode = {config.eval_grid_mode}")
+        # print(f"[DEBUG][Client {self.cid}] Raw eval_times BEFORE np.array constructor:")
+
+        # if config.eval_grid_mode == 'client':
+        #     print(type(config.eval_times_per_client[self.cid]), config.eval_times_per_client[self.cid])
+        # elif config.eval_grid_mode == 'global':
+        #     print(type(config.global_eval_times), config.global_eval_times)
+
+        # print(f"[DEBUG][Client {self.cid}] Final self.eval_times type={type(self.eval_times)}, len attempt...")
+
+        # try:
+        #     print(f"[DEBUG][Client {self.cid}] len(self.eval_times) = {len(self.eval_times)}")
+        # except Exception as e:
+        #     print(f"[ERROR][Client {self.cid}] self.eval_times HAS NO LENGTH! Type={type(self.eval_times)}, value={self.eval_times}")
+        #     raise e
 
 
     # ---------------------------------------------------------
@@ -81,14 +84,14 @@ class FederatedRSFClient(fl.client.Client):
         print(f"[DEBUG][Client {self.cid}] Starting EVALUATE")
 
         #DEBUG EVAL TIMES:
-        print(f"[DEBUG][Client {self.cid}] eval_times at EVALUATE entry:")
-        print(f"    type={type(self.eval_times)}, value={self.eval_times}")
+        #print(f"[DEBUG][Client {self.cid}] eval_times at EVALUATE entry:")
+        #print(f"    type={type(self.eval_times)}, value={self.eval_times}")
 
-        try:
-            print(f"    len={len(self.eval_times)}")
-        except Exception as e:
-            print(f"[ERROR][Client {self.cid}] eval_times is unsized HERE")
-            raise e
+        # try:
+        #     #print(f"    len={len(self.eval_times)}")
+        # except Exception as e:
+        #     print(f"[ERROR][Client {self.cid}] eval_times is unsized HERE")
+        #     raise e
         #END DEBUG EVAL TIMES
 
         
@@ -98,7 +101,13 @@ class FederatedRSFClient(fl.client.Client):
 
         # load global forest
         n_features = self.X_train.shape[1]
-        self.model.set_trees(federated_trees, n_features)
+        #self.model.set_trees(federated_trees, n_features)
+        self.model.set_trees(
+            trees=federated_trees,
+            n_features=n_features,
+            init_times=self.config.union_time_grid
+        )
+
 
         # evaluate on local grid
         metrics = evaluate_rsf(
@@ -107,7 +116,8 @@ class FederatedRSFClient(fl.client.Client):
                 "X_test": self.X_test,
                 "y_test": self.y_test,
                 "y_train": self.y_train,
-                "eval_times": self.eval_times},
+                #"eval_times": self.eval_times
+            },
             client_id=self.cid,
             config=self.config,
         )

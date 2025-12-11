@@ -34,25 +34,55 @@ class SurvivalRandomForest:
     def predict_survival_function(self, X):
         return self.model.predict_survival_function(X)
 
-    def set_trees(self, trees, n_features):
+    # def set_trees(self, trees, n_features):
+    #     """
+    #     Load a federated global forest made of trees from many clients.
+    #     A dummy fit is required to initialize RSF internal attributes.
+    #     """
+    #     import numpy as np
+    #     from sksurv.util import Surv
+
+    #     # 1) Dummy tiny dataset to initialize RSF internals:
+    #     # one sample, one fake time, event=True
+    #     X_dummy = np.zeros((2, n_features))
+    #     y_dummy = Surv.from_arrays(event=[True, True], time=[1.0, 2.0])
+
+    #     # this creates n_outputs_, unique_times_, event_times_, etc.
+    #     self.model.fit(X_dummy, y_dummy)
+
+    #     # 2) Inject trees AFTER initialization:
+    #     self.model.estimators_ = trees
+    #     self.model.n_features_in_ = n_features
+    def set_trees(self, trees, n_features, init_times):
         """
-        Load a federated global forest made of trees from many clients.
-        A dummy fit is required to initialize RSF internal attributes.
+        Proper RSF initialization using real global survival times.
+        init_times = config.union_time_grid
         """
-        import numpy as np
+
         from sksurv.util import Surv
+        import numpy as np
 
-        # 1) Dummy tiny dataset to initialize RSF internals:
-        # one sample, one fake time, event=True
-        X_dummy = np.zeros((2, n_features))
-        y_dummy = Surv.from_arrays(event=[True, True], time=[1.0, 2.0])
+        if init_times is None or len(init_times) < 3:
+            raise ValueError(
+                "set_trees() requires init_times (union_time_grid) with real survival times."
+            )
 
-        # this creates n_outputs_, unique_times_, event_times_, etc.
-        self.model.fit(X_dummy, y_dummy)
+        # 1. Dummy features, but TRUE survival times
+        X_init = np.zeros((len(init_times), n_features))
 
-        # 2) Inject trees AFTER initialization:
+        # RSF only cares about the times here — events=True is fine
+        y_init = Surv.from_arrays(
+            event=np.ones(len(init_times), dtype=bool),
+            time=init_times,
+        )
+
+        # 2. Fit once to initialize internal RSF hazard structure
+        self.model.fit(X_init, y_init)
+
+        # 3. Inject federated trees
         self.model.estimators_ = trees
         self.model.n_features_in_ = n_features
+
 
     def predict_survival_function_fedsurf(self, X):
         """

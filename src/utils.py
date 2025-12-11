@@ -696,26 +696,44 @@ def evaluate_rsf(model, data, client_id, config):
     X_test  = data["X_test"]
     y_test  = data["y_test"]
     y_train = data["y_train"]
-    eval_times = data["eval_times"]
-    logger.info(
-            f"[Client {client_id}] Eval times ({len(eval_times)} points): {eval_times}"
-        )
+
+
+    # eval_times = data["eval_times"]
+    # logger.info(
+    #         f"[Client {client_id}] Eval times ({len(eval_times)} points): {eval_times}"
+    #     )
         
   
-    # 1) FedSurF prediction
-    #    returns: list of (times, survival_values)
+    # # 1) FedSurF prediction
+    # #    returns: list of (times, survival_values)
+    # surv_fns = model.predict_survival_function_fedsurf(X_test)
+
+    # # convert to matrix of survival probabilities at eval_times
+    # n_samples = len(surv_fns)
+    # surv_probs = np.zeros((n_samples, len(eval_times)))
+
+    # for i, (t, s) in enumerate(surv_fns):
+
+    #     # interpolate to eval_times
+    #     f = interp1d(t, s, kind="previous", bounds_error=False,
+    #                  fill_value=(1.0, s[-1]))
+    #     surv_probs[i, :] = f(eval_times)
+
+
+    # NEW: native FedSurF
+    # 1) FedSurF prediction (already averaged)
     surv_fns = model.predict_survival_function_fedsurf(X_test)
 
-    # convert to matrix of survival probabilities at eval_times
+    # Extract the shared RSF-native time grid (same for all samples)
+    t_native = surv_fns[0][0]          # times
+    n_times = len(t_native)
+
+    # Build survival matrix on native grid
     n_samples = len(surv_fns)
-    surv_probs = np.zeros((n_samples, len(eval_times)))
+    surv_probs = np.zeros((n_samples, n_times))
 
     for i, (t, s) in enumerate(surv_fns):
-
-        # interpolate to eval_times
-        f = interp1d(t, s, kind="previous", bounds_error=False,
-                     fill_value=(1.0, s[-1]))
-        surv_probs[i, :] = f(eval_times)
+        surv_probs[i, :] = s           # no interpolation needed
 
 
     # Compute metrics 
@@ -731,7 +749,9 @@ def evaluate_rsf(model, data, client_id, config):
 
     # risk scores
     #risk_scores = -surv_probs[:, -1]
-    risk_scores = -np.trapz(surv_probs, eval_times, axis=1)
+    #risk_scores = -np.trapz(surv_probs, eval_times, axis=1)
+    risk_scores = -np.trapz(surv_probs, t_native, axis=1) # NEW: native FedSurF
+
 
 
     #DEBUG PRINTS: survival curve stability 
@@ -755,14 +775,21 @@ def evaluate_rsf(model, data, client_id, config):
 
     # AUC(t)
     try:
-        aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, eval_times)
+        #aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, eval_times)
+        aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, t_native) #NEW: native FedSurF
+
     except:
         mean_auc = np.nan
 
     # IBS
     try:
-        bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, eval_times)
-        ibs = np.trapz(bs_scores, bs_times) / (bs_times[-1] - bs_times[0])
+        # bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, eval_times)
+        # ibs = np.trapz(bs_scores, bs_times) / (bs_times[-1] - bs_times[0])
+        
+        #NEW: native FedSurF
+        bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, t_native)
+        ibs = np.trapz(bs_scores, t_native) / (t_native[-1] - t_native[0])
+
     except:
         ibs = np.nan
 

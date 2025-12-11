@@ -291,6 +291,7 @@ def main(config: Config):
 
         all_times = np.array(all_times)
         union_grid = np.unique(all_times)
+        config.union_time_grid = union_grid
 
         global_grid = np.quantile(union_grid, np.linspace(0.05, 0.95, 100))
         config.global_eval_times = global_grid.tolist()
