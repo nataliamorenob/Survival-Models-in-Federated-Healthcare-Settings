@@ -725,15 +725,58 @@ def evaluate_rsf(model, data, client_id, config):
     surv_fns = model.predict_survival_function_fedsurf(X_test)
 
     # Extract the shared RSF-native time grid (same for all samples)
-    t_native = surv_fns[0][0]          # times
-    n_times = len(t_native)
+    #t_native = surv_fns[0][0]          # times
 
-    # Build survival matrix on native grid
-    n_samples = len(surv_fns)
-    surv_probs = np.zeros((n_samples, n_times))
+    if config.eval_grid_mode == "global":
+        eval_times = np.array(config.global_eval_times)
+    else:
+        eval_times = np.array(config.eval_times_per_client[client_id])
+
+    # 3) IPCW SAFETY FILTERING (CRITICAL)
+    # ---------------------------------------------------------
+    train_max_time = np.max(y_train["time"])
+
+    # must lie strictly within training support
+    eval_times = eval_times[eval_times < train_max_time]
+
+    # must be strictly positive
+    eval_times = eval_times[eval_times > 0]
+
+    # ensure sorted unique grid
+    eval_times = np.unique(eval_times)
+
+    if len(eval_times) < 5:
+        logger.warning(
+            f"[Client {client_id}] Too few valid eval_times "
+            f"(n={len(eval_times)}). AUC/IBS may be NaN."
+        )
+
+
+
+
+    # n_times = len(t_native)
+
+
+    # # Build survival matrix on native grid
+    # n_samples = len(surv_fns)
+    # surv_probs = np.zeros((n_samples, n_times))
+
+    # for i, (t, s) in enumerate(surv_fns):
+    #     surv_probs[i, :] = s           # no interpolation needed
+
+    eval_times = np.array(eval_times)
+    n_times = len(eval_times)
+
+    surv_probs = np.zeros((len(surv_fns), n_times))
 
     for i, (t, s) in enumerate(surv_fns):
-        surv_probs[i, :] = s           # no interpolation needed
+        f = interp1d(
+            t, s,
+            kind="previous",
+            bounds_error=False,
+            fill_value=(1.0, s[-1])
+        )
+        surv_probs[i, :] = f(eval_times)
 
 
     # Compute metrics 
@@ -750,7 +793,11 @@ def evaluate_rsf(model, data, client_id, config):
     # risk scores
     #risk_scores = -surv_probs[:, -1]
     #risk_scores = -np.trapz(surv_probs, eval_times, axis=1)
-    risk_scores = -np.trapz(surv_probs, t_native, axis=1) # NEW: native FedSurF
+    risk_scores = -np.trapz(surv_probs, eval_times, axis=1) # NEW: native FedSurF
+    print("Risk score stats:")
+    print("  min:", risk_scores.min())
+    print("  max:", risk_scores.max())
+    print("  std:", risk_scores.std())
 
 
 
@@ -776,7 +823,7 @@ def evaluate_rsf(model, data, client_id, config):
     # AUC(t)
     try:
         #aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, eval_times)
-        aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, t_native) #NEW: native FedSurF
+        aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, eval_times) #NEW: native FedSurF
 
     except:
         mean_auc = np.nan
@@ -787,8 +834,8 @@ def evaluate_rsf(model, data, client_id, config):
         # ibs = np.trapz(bs_scores, bs_times) / (bs_times[-1] - bs_times[0])
         
         #NEW: native FedSurF
-        bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, t_native)
-        ibs = np.trapz(bs_scores, t_native) / (t_native[-1] - t_native[0])
+        bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, eval_times)
+        ibs = np.trapz(bs_scores, eval_times) / (eval_times[-1] - eval_times[0])
 
     except:
         ibs = np.nan
