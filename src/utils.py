@@ -686,163 +686,316 @@ from sksurv.metrics import (
 #         "client_name": f"Client {client_id}"
 #     }
 
+
+
+
+
+# def evaluate_rsf(model, data, client_id, config):
+#     """
+#     FedSurF-style evaluation (no forest-level prediction).
+#     """
+#     logger = logging.getLogger("main")
+#     logger.info(f"[Client {client_id}] Evaluating FedSurF RSF...")
+
+#     X_test  = data["X_test"]
+#     y_test  = data["y_test"]
+#     y_train = data["y_train"]
+
+
+#     # eval_times = data["eval_times"]
+#     # logger.info(
+#     #         f"[Client {client_id}] Eval times ({len(eval_times)} points): {eval_times}"
+#     #     )
+        
+  
+#     # # 1) FedSurF prediction
+#     # #    returns: list of (times, survival_values)
+#     # surv_fns = model.predict_survival_function_fedsurf(X_test)
+
+#     # # convert to matrix of survival probabilities at eval_times
+#     # n_samples = len(surv_fns)
+#     # surv_probs = np.zeros((n_samples, len(eval_times)))
+
+#     # for i, (t, s) in enumerate(surv_fns):
+
+#     #     # interpolate to eval_times
+#     #     f = interp1d(t, s, kind="previous", bounds_error=False,
+#     #                  fill_value=(1.0, s[-1]))
+#     #     surv_probs[i, :] = f(eval_times)
+
+
+#     # NEW: native FedSurF
+#     # 1) FedSurF prediction (already averaged)
+#     surv_fns = model.predict_survival_function_fedsurf(X_test)
+
+#     # Extract the shared RSF-native time grid (same for all samples)
+#     #t_native = surv_fns[0][0]          # times
+
+#     if config.eval_grid_mode == "global":
+#         eval_times = np.array(config.global_eval_times)
+#     else:
+#         eval_times = np.array(config.eval_times_per_client[client_id])
+
+#     # 3) IPCW SAFETY FILTERING (CRITICAL)
+#     # ---------------------------------------------------------
+#     train_max_time = np.max(y_train["time"])
+
+#     # must lie strictly within training support
+#     eval_times = eval_times[eval_times < train_max_time]
+
+#     # must be strictly positive
+#     eval_times = eval_times[eval_times > 0]
+
+#     # ensure sorted unique grid
+#     eval_times = np.unique(eval_times)
+
+#     if len(eval_times) < 5:
+#         logger.warning(
+#             f"[Client {client_id}] Too few valid eval_times "
+#             f"(n={len(eval_times)}). AUC/IBS may be NaN."
+#         )
+
+
+
+
+#     # n_times = len(t_native)
+
+
+#     # # Build survival matrix on native grid
+#     # n_samples = len(surv_fns)
+#     # surv_probs = np.zeros((n_samples, n_times))
+
+#     # for i, (t, s) in enumerate(surv_fns):
+#     #     surv_probs[i, :] = s           # no interpolation needed
+
+#     eval_times = np.array(eval_times)
+#     n_times = len(eval_times)
+
+#     surv_probs = np.zeros((len(surv_fns), n_times))
+
+#     for i, (t, s) in enumerate(surv_fns):
+#         f = interp1d(
+#             t, s,
+#             kind="previous",
+#             bounds_error=False,
+#             fill_value=(1.0, s[-1])
+#         )
+#         surv_probs[i, :] = f(eval_times)
+
+
+#     # Compute metrics 
+#     test_events = y_test["event"].astype(bool)
+#     test_times = y_test["time"].astype(float)
+
+#     # DEBUG PRINTS: test label statistics
+#     print(f"\n[DEBUG][Client {client_id}] Event count: {sum(test_events)} / {len(test_events)}")
+#     print(f"[DEBUG][Client {client_id}] Censoring rate: {1 - sum(test_events)/len(test_events):.2f}")
+#     print(f"[DEBUG][Client {client_id}] Test time range: min={test_times.min()}, max={test_times.max()}")
+#     print(f"[DEBUG][Client {client_id}] Train time range: [{y_train['time'].min()}, {y_train['time'].max()}]\n")
+
+
+#     # risk scores
+#     #risk_scores = -surv_probs[:, -1]
+#     #risk_scores = -np.trapz(surv_probs, eval_times, axis=1)
+#     risk_scores = -np.trapz(surv_probs, eval_times, axis=1) # NEW: native FedSurF
+#     print("Risk score stats:")
+#     print("  min:", risk_scores.min())
+#     print("  max:", risk_scores.max())
+#     print("  std:", risk_scores.std())
+
+
+
+#     #DEBUG PRINTS: survival curve stability 
+#     print(f"[DEBUG][Client {client_id}] Survival at last eval_time:")
+#     print(f"    min={surv_probs[:, -1].min():.4f}, max={surv_probs[:, -1].max():.4f}")
+#     print(f"[DEBUG][Client {client_id}] Survival at first eval_time:")
+#     print(f"    min={surv_probs[:, 0].min():.4f}, max={surv_probs[:, 0].max():.4f}\n")
+
+
+#     # C-index
+#     try:
+#         c_index = concordance_index(test_times, risk_scores, test_events)
+#     except:
+#         c_index = np.nan
+
+#     # IPCW C-index
+#     try:
+#         cindex_ipcw, _ = concordance_index_ipcw(y_train, y_test, risk_scores)
+#     except:
+#         cindex_ipcw = np.nan
+
+#     # AUC(t)
+#     try:
+#         #aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, eval_times)
+#         aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, eval_times) #NEW: native FedSurF
+
+#     except:
+#         mean_auc = np.nan
+
+#     # IBS
+#     try:
+#         # bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, eval_times)
+#         # ibs = np.trapz(bs_scores, bs_times) / (bs_times[-1] - bs_times[0])
+        
+#         #NEW: native FedSurF
+#         bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, eval_times)
+#         ibs = np.trapz(bs_scores, eval_times) / (eval_times[-1] - eval_times[0])
+
+#     except:
+#         ibs = np.nan
+
+#     logger.info(
+#         f"[Client {client_id}] C-index={c_index:.4f}, "
+#         f"IPCW={cindex_ipcw:.4f}, AUC={mean_auc:.4f}, IBS={ibs:.4f}"
+#     )
+
+#     return {
+#         "C-index": float(c_index),
+#         "IPCW_C-index": float(cindex_ipcw),
+#         "AUC": float(mean_auc),
+#         "IBS": float(ibs),
+#         "client_name": f"Client {client_id}",
+#     }
+
+
 def evaluate_rsf(model, data, client_id, config):
     """
-    FedSurF-style evaluation (no forest-level prediction).
-    """
-    logger = logging.getLogger("main")
-    logger.info(f"[Client {client_id}] Evaluating FedSurF RSF...")
+    RSF evaluation with PAPER-STYLE C-index
+    (matches FedSurF original implementation).
 
+    C-index:
+      - dense linspace time grid
+      - cumulative log-risk
+      - concordance_index_censored
+
+    NOTE:
+      AUC / IBS here are NOT paper-style and are optional.
+    """
+
+    import logging
+    import numpy as np
+    from scipy.interpolate import interp1d
+    from sksurv.metrics import (
+        concordance_index_censored,
+        concordance_index_ipcw,
+        cumulative_dynamic_auc,
+        brier_score,
+    )
+
+    logger = logging.getLogger("main")
+    logger.info(f"[Client {client_id}] Evaluating RSF (paper-style C-index)...")
+
+    # ---------------------------------------------------------
+    # Unpack data
+    # ---------------------------------------------------------
     X_test  = data["X_test"]
     y_test  = data["y_test"]
     y_train = data["y_train"]
 
-
-    # eval_times = data["eval_times"]
-    # logger.info(
-    #         f"[Client {client_id}] Eval times ({len(eval_times)} points): {eval_times}"
-    #     )
-        
-  
-    # # 1) FedSurF prediction
-    # #    returns: list of (times, survival_values)
-    # surv_fns = model.predict_survival_function_fedsurf(X_test)
-
-    # # convert to matrix of survival probabilities at eval_times
-    # n_samples = len(surv_fns)
-    # surv_probs = np.zeros((n_samples, len(eval_times)))
-
-    # for i, (t, s) in enumerate(surv_fns):
-
-    #     # interpolate to eval_times
-    #     f = interp1d(t, s, kind="previous", bounds_error=False,
-    #                  fill_value=(1.0, s[-1]))
-    #     surv_probs[i, :] = f(eval_times)
-
-
-    # NEW: native FedSurF
-    # 1) FedSurF prediction (already averaged)
-    surv_fns = model.predict_survival_function_fedsurf(X_test)
-
-    # Extract the shared RSF-native time grid (same for all samples)
-    #t_native = surv_fns[0][0]          # times
-
-    if config.eval_grid_mode == "global":
-        eval_times = np.array(config.global_eval_times)
-    else:
-        eval_times = np.array(config.eval_times_per_client[client_id])
-
-    # 3) IPCW SAFETY FILTERING (CRITICAL)
     # ---------------------------------------------------------
-    train_max_time = np.max(y_train["time"])
+    # 1) FedSurF prediction (tree-averaged survival curves)
+    # ---------------------------------------------------------
+    surv_fns = model.predict_survival_function_fedsurf(X_test)
+    # surv_fns[i] = (times_i, surv_probs_i)
 
-    # must lie strictly within training support
-    eval_times = eval_times[eval_times < train_max_time]
+    # ---------------------------------------------------------
+    # 2) PAPER-STYLE TIME GRID
+    # ---------------------------------------------------------
+    sorted_train_times = np.sort(np.unique(y_train["time"]))
+    sorted_test_times  = np.sort(np.unique(y_test["time"]))
 
-    # must be strictly positive
-    eval_times = eval_times[eval_times > 0]
-
-    # ensure sorted unique grid
-    eval_times = np.unique(eval_times)
-
-    if len(eval_times) < 5:
+    # Guard against pathological cases
+    if len(sorted_train_times) < 4 or len(sorted_test_times) < 4:
         logger.warning(
-            f"[Client {client_id}] Too few valid eval_times "
-            f"(n={len(eval_times)}). AUC/IBS may be NaN."
+            f"[Client {client_id}] Not enough unique times for paper-style grid."
         )
+        return {
+            "C-index": np.nan,
+            "IPCW_C-index": np.nan,
+            "AUC": np.nan,
+            "IBS": np.nan,
+            "client_name": f"Client {client_id}",
+        }
 
+    eval_times = np.linspace(
+        start=max(sorted_train_times[1], sorted_test_times[1]),
+        stop=min(sorted_train_times[-2], sorted_test_times[-2]),
+        num=100,
+    )
 
+    # ---------------------------------------------------------
+    # 3) Interpolate survival curves onto paper grid
+    # ---------------------------------------------------------
+    n_samples = len(surv_fns)
+    n_times   = len(eval_times)
 
-
-    # n_times = len(t_native)
-
-
-    # # Build survival matrix on native grid
-    # n_samples = len(surv_fns)
-    # surv_probs = np.zeros((n_samples, n_times))
-
-    # for i, (t, s) in enumerate(surv_fns):
-    #     surv_probs[i, :] = s           # no interpolation needed
-
-    eval_times = np.array(eval_times)
-    n_times = len(eval_times)
-
-    surv_probs = np.zeros((len(surv_fns), n_times))
+    surv_probs = np.zeros((n_samples, n_times))
 
     for i, (t, s) in enumerate(surv_fns):
         f = interp1d(
-            t, s,
+            t,
+            s,
             kind="previous",
             bounds_error=False,
-            fill_value=(1.0, s[-1])
+            fill_value=(1.0, s[-1]),
         )
         surv_probs[i, :] = f(eval_times)
 
+    # Numerical safety (exactly like paper)
+    surv_probs = np.nan_to_num(surv_probs, nan=0.5)
+    surv_probs[surv_probs < 0.0] = 0.0
+    surv_probs[surv_probs > 1.0] = 1.0
+    surv_probs = surv_probs * (1.0 - 1e-8) + 1e-8
 
-    # Compute metrics 
-    test_events = y_test["event"].astype(bool)
-    test_times = y_test["time"].astype(float)
+    # ---------------------------------------------------------
+    # 4) PAPER-STYLE RISK DEFINITION
+    # ---------------------------------------------------------
+    risks = -np.log(surv_probs)
+    risk_scores = np.sum(risks, axis=1)
 
-    # DEBUG PRINTS: test label statistics
-    print(f"\n[DEBUG][Client {client_id}] Event count: {sum(test_events)} / {len(test_events)}")
-    print(f"[DEBUG][Client {client_id}] Censoring rate: {1 - sum(test_events)/len(test_events):.2f}")
-    print(f"[DEBUG][Client {client_id}] Test time range: min={test_times.min()}, max={test_times.max()}")
-    print(f"[DEBUG][Client {client_id}] Train time range: [{y_train['time'].min()}, {y_train['time'].max()}]\n")
+    # ---------------------------------------------------------
+    # 5) PAPER-STYLE C-INDEX
+    # ---------------------------------------------------------
+    c_index = concordance_index_censored(
+        y_test["event"],
+        y_test["time"],
+        risk_scores,
+    )[0]
 
-
-    # risk scores
-    #risk_scores = -surv_probs[:, -1]
-    #risk_scores = -np.trapz(surv_probs, eval_times, axis=1)
-    risk_scores = -np.trapz(surv_probs, eval_times, axis=1) # NEW: native FedSurF
-    print("Risk score stats:")
-    print("  min:", risk_scores.min())
-    print("  max:", risk_scores.max())
-    print("  std:", risk_scores.std())
-
-
-
-    #DEBUG PRINTS: survival curve stability 
-    print(f"[DEBUG][Client {client_id}] Survival at last eval_time:")
-    print(f"    min={surv_probs[:, -1].min():.4f}, max={surv_probs[:, -1].max():.4f}")
-    print(f"[DEBUG][Client {client_id}] Survival at first eval_time:")
-    print(f"    min={surv_probs[:, 0].min():.4f}, max={surv_probs[:, 0].max():.4f}\n")
-
-
-    # C-index
+    # ---------------------------------------------------------
+    # 6) Optional additional metrics (NOT paper-style)
+    # ---------------------------------------------------------
     try:
-        c_index = concordance_index(test_times, risk_scores, test_events)
-    except:
-        c_index = np.nan
-
-    # IPCW C-index
-    try:
-        cindex_ipcw, _ = concordance_index_ipcw(y_train, y_test, risk_scores)
-    except:
+        cindex_ipcw = concordance_index_ipcw(
+            y_train, y_test, risk_scores
+        )[0]
+    except Exception:
         cindex_ipcw = np.nan
 
-    # AUC(t)
     try:
-        #aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, eval_times)
-        aucs, mean_auc = cumulative_dynamic_auc(y_train, y_test, risk_scores, eval_times) #NEW: native FedSurF
-
-    except:
+        _, mean_auc = cumulative_dynamic_auc(
+            y_train, y_test, risk_scores, eval_times
+        )
+    except Exception:
         mean_auc = np.nan
 
-    # IBS
     try:
-        # bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, eval_times)
-        # ibs = np.trapz(bs_scores, bs_times) / (bs_times[-1] - bs_times[0])
-        
-        #NEW: native FedSurF
-        bs_times, bs_scores = brier_score(y_train, y_test, surv_probs, eval_times)
+        _, bs_scores = brier_score(
+            y_train, y_test, surv_probs, eval_times
+        )
         ibs = np.trapz(bs_scores, eval_times) / (eval_times[-1] - eval_times[0])
-
-    except:
+    except Exception:
         ibs = np.nan
 
+    # ---------------------------------------------------------
+    # 7) Logging
+    # ---------------------------------------------------------
     logger.info(
-        f"[Client {client_id}] C-index={c_index:.4f}, "
-        f"IPCW={cindex_ipcw:.4f}, AUC={mean_auc:.4f}, IBS={ibs:.4f}"
+        f"[Client {client_id}] "
+        f"C-index(paper)={c_index:.4f}, "
+        f"IPCW={cindex_ipcw:.4f}, "
+        f"AUC={mean_auc:.4f}, "
+        f"IBS={ibs:.4f}"
     )
 
     return {
