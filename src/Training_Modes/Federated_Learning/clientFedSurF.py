@@ -5,6 +5,10 @@ from flwr.common import FitRes, EvaluateRes, Parameters, Status, Code
 from utils import evaluate_rsf   # you already have this
 import numpy as np
 from scipy.interpolate import interp1d
+import os
+from datetime import datetime
+from Exps_runs_randomness.utils_results import append_metrics_to_csv
+
 
 class FederatedRSFClient(fl.client.Client):
 
@@ -124,6 +128,36 @@ class FederatedRSFClient(fl.client.Client):
         metrics["cid"] = self.cid
 
         print(f"[DEBUG][Client {self.cid}] Evaluation finished → {metrics}")
+
+
+        # TO CSV OF RANDOMNESS:
+        # SAVE FINAL METRICS (ONE ROW PER CLIENT PER RUN) -->
+        run_id = os.environ.get("RUN_ID", "unknown")
+
+        csv_path = os.environ.get(
+            "OUTPUT_CSV",
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "results_randomness_exps",
+                f"run_{run_id}.csv"
+            )
+        )
+
+
+        append_metrics_to_csv(
+            csv_path,
+            {
+                "timestamp": datetime.now().isoformat(),
+                "run_id": run_id,
+                "client_id": self.cid,
+                "c_index": metrics["C-index"],
+                "auc": metrics["AUC"],
+                "ibs": metrics["IBS"],
+            }
+        )
+
+
+
 
         return EvaluateRes(
             status=Status(Code.OK, message="OK"),

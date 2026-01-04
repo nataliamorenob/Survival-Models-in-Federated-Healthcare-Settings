@@ -922,6 +922,26 @@ def evaluate_rsf(model, data, client_id, config):
         stop=min(sorted_train_times[-2], sorted_test_times[-2]),
         num=100,
     )
+    # DEBUG: print entire eval_times --> 
+    print(
+    f"\n[DEBUG][Client {client_id}] FULL eval_times ({len(eval_times)} points):"
+    )
+    print(np.array2string(eval_times, precision=6, separator=", "))
+    print()
+
+    # DEBIG: Train/test time ranges --> 
+    print(
+    f"[DEBUG][Client {client_id}] y_train time range: "
+    f"[{y_train['time'].min():.6f}, {y_train['time'].max():.6f}]"
+    )
+    print(
+        f"[DEBUG][Client {client_id}] y_test  time range: "
+        f"[{y_test['time'].min():.6f}, {y_test['time'].max():.6f}]"
+    )
+    print()
+
+
+
 
     # ---------------------------------------------------------
     # 3) Interpolate survival curves onto paper grid
@@ -972,12 +992,67 @@ def evaluate_rsf(model, data, client_id, config):
     except Exception:
         cindex_ipcw = np.nan
 
-    try:
-        _, mean_auc = cumulative_dynamic_auc(
-            y_train, y_test, risk_scores, eval_times
+
+    # OLD FedSurF AUC --> undefined bc risks collapsed
+    # try:
+    #     _, mean_auc = cumulative_dynamic_auc(
+    #         y_train, y_test, risk_scores, eval_times
+    #     )
+    # except Exception:
+    #     mean_auc = np.nan
+
+
+    # FedSurF++ STYLE CUMULATIVE AUC (time-dependent)
+    # DEBGUG:
+    print(f"[DEBUG][Client {client_id}] Checking event / risk counts per eval_time:")
+
+    for i, t in enumerate(eval_times):
+        n_events = np.sum((y_test["event"] == 1) & (y_test["time"] <= t))
+        n_at_risk = np.sum(y_test["time"] >= t)
+
+        print(
+            f"[DEBUG][Client {client_id}] t={t:.6f} | "
+            f"events_up_to_t={n_events} | "
+            f"at_risk={n_at_risk}"
         )
-    except Exception:
+
+    print()
+
+    try:
+        # time-dependent risk: higher = more likely event
+        risk_scores_t = 1.0 - surv_probs   # shape (n_samples, n_times)
+
+        auc_t, mean_auc = cumulative_dynamic_auc(
+            y_train,
+            y_test,
+            risk_scores_t,
+            eval_times,
+        )
+
+        # FILTER INVALID TIMES: bc if not yield to nan due to high censoring
+        valid = (
+            ~np.isnan(auc_t)
+        )
+
+        print(
+            f"[DEBUG][Client {client_id}] AUC valid times: "
+            f"{valid.sum()} / {len(valid)}"
+        )
+
+        if valid.sum() < 3:
+            mean_auc = np.nan
+        else:
+            mean_auc = np.trapz(
+                auc_t[valid],
+                eval_times[valid]
+            ) / (eval_times[valid][-1] - eval_times[valid][0])
+            
+    except Exception as e:
+        logger.warning(
+            f"[Client {client_id}] Cumulative AUC failed: {e}"
+        )
         mean_auc = np.nan
+
 
     try:
         _, bs_scores = brier_score(

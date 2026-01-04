@@ -200,6 +200,14 @@
 print("DEBUG: main.py started execution")
 
 import os, sys
+from pathlib import Path
+
+# ADD PROJECT ROOT TO PYTHONPATH:
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+
 print("DEBUG: __name__ =", __name__)
 print("DEBUG: Running file =", os.path.abspath(__file__))
 print("DEBUG: Current working dir =", os.getcwd())
@@ -375,9 +383,9 @@ def main(config: Config):
 if __name__ == "__main__":
     user_config = Config(
         model="RSF",
-        centers=[0, 1, 2, 3, 4, 5],
+        centers=[0, 1, 2, 3],
         training_mode="federated",
-        num_clients=6,
+        num_clients=4,
         strategy="FedSurvForest",
         num_rounds=2,
         eval_grid_mode="global"  # or "client"
