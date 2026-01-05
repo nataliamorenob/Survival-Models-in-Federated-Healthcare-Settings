@@ -49,11 +49,11 @@ class Config:
 
 
     # RANDOM SURVIVAL FOREST ALGORITHM PARAMETERS (DEFAULT FOR NOW, BUT TUNE IN THE FUTURE):
-    n_trees_local: int = 20 # number of trees each client trains (in the future hyperparameter tuning)
+    n_trees_local: int = 200 # number of trees each client trains (in the future hyperparameter tuning)
     n_trees_federated: int = 80 # number of trees the server samples (in the future hyperparameter tuning)
     min_samples_split: int = 5
     min_samples_leaf: int = 10
-    random_state: int = 42
+    #random_state: int = 42
 
 
 

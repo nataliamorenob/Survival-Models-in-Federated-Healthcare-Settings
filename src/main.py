@@ -201,6 +201,8 @@ print("DEBUG: main.py started execution")
 
 import os, sys
 from pathlib import Path
+import random
+
 
 # ADD PROJECT ROOT TO PYTHONPATH:
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -247,17 +249,22 @@ def init_logging(config):
 
 
 def main(config: Config):
+    # Random seeds to test randomness
+    run_id = int(os.environ.get("RUN_ID", 0))
+    seed = 1234 + run_id
 
-    # ----------------------------
-    # Init Logging
-    # ----------------------------
+    config.random_state = seed
+
+    np.random.seed(seed)
+    random.seed(seed)
+
+
+    # Init logging
     logger = init_logging(config)
     logging.getLogger().setLevel(logging.INFO)
     logger.info(f"Experiment started: {config.experiment_id}")
 
-    # ----------------------------
     # Init RAY
-    # ----------------------------
     import ray
     ray.init(
         _memory=2 * 1024 * 1024 * 1024,
@@ -317,7 +324,7 @@ def main(config: Config):
 
         dataloaders = preloaded_data[cid_int]
 
-        model_manager = ModelManager(config)
+        model_manager = ModelManager(config, client_id=cid_int)
         model_manager.initialize_model()
         model = model_manager.get_model()
 
@@ -383,9 +390,9 @@ def main(config: Config):
 if __name__ == "__main__":
     user_config = Config(
         model="RSF",
-        centers=[0, 1, 2, 3],
+        centers=[0, 1, 2],
         training_mode="federated",
-        num_clients=4,
+        num_clients=3,
         strategy="FedSurvForest",
         num_rounds=2,
         eval_grid_mode="global"  # or "client"
