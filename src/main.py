@@ -390,9 +390,9 @@ def main(config: Config):
 if __name__ == "__main__":
     user_config = Config(
         model="RSF",
-        centers=[0, 1, 2],
+        centers=[0, 1, 2, 3, 4],
         training_mode="federated",
-        num_clients=3,
+        num_clients=5,
         strategy="FedSurvForest",
         num_rounds=2,
         eval_grid_mode="global"  # or "client"
