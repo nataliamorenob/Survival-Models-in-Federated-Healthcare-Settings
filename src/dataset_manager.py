@@ -290,17 +290,32 @@ class DatasetManager:
             dataloaders[center] = {"train": df_train_stacked, "val": None, "test": df_test_stacked}
         
         elif self.config.model.lower() == "rsf":
+            
+            # NO VAL SET (OLD):
+            # # RSF always keeps original DataFrames
+            # dataloaders[center] = {
+            #     "train_df": df_train,
+            #     "test_df": df_test,
+            #     "val": None
+            # }
 
-            # RSF always keeps original DataFrames
+
+
+            # Event-aware train/validation split (FedSurF++)
+            df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
+
             dataloaders[center] = {
-                "train_df": df_train,
+                "train_df": df_train_split,
+                "val_df": df_val,
                 "test_df": df_test,
-                "val": None
             }
+
+
 
             # Extract features
             feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
             X_train = df_train[feature_cols].values
+            X_val   = df_val[feature_cols].values
             X_test = df_test[feature_cols].values
 
             # Build structured survival arrays
@@ -309,6 +324,12 @@ class DatasetManager:
                 event=df_train["event"].astype(bool),
                 time=df_train["time"].astype(float)
             )
+
+            y_val = Surv.from_arrays(
+                event=df_val["event"].astype(bool),
+                time=df_val["time"].astype(float),
+            )
+
             y_test = Surv.from_arrays(
                 event=df_test["event"].astype(bool),
                 time=df_test["time"].astype(float)
@@ -316,6 +337,8 @@ class DatasetManager:
 
             dataloaders[center]["X_train"] = X_train
             dataloaders[center]["X_test"] = X_test
+            dataloaders[center]["X_val"] = X_val
+            dataloaders[center]["y_val"] = y_val
             dataloaders[center]["y_train"] = y_train
             dataloaders[center]["y_test"] = y_test
 
@@ -336,7 +359,7 @@ class DatasetManager:
 
 
             # NEW CORRECTION BC C-INDEX LOW --> Use TRAINING event times, not test events:
-            train_event_times = df_train.loc[df_train["event"] == 1, "time"].values
+            train_event_times = df_train_split.loc[df_train_split["event"] == 1, "time"].values
 
             if len(train_event_times) > 1:
                 # Use quantiles of TRAINING events — avoids early/late flat survival
@@ -474,29 +497,82 @@ class DatasetManager:
         df["time"] = y_time
         return df
 
-    def _split_train_val(self, df_train, center):
-        """Split training set into train (80%) and val (20%), ensuring at least 1 event in val."""
-        df_train_split, df_val = train_test_split(
-            df_train, test_size=0.2, random_state=42, stratify=df_train["event"]
+    # def _split_train_val(self, df_train, center):
+    #     """Split training set into train (80%) and val (20%), ensuring at least 1 event in val."""
+    #     df_train_split, df_val = train_test_split(
+    #         df_train, test_size=0.2, random_state=42, stratify=df_train["event"]
+    #     )
+
+    #     # Ensure validation has at least 1 event
+    #     if df_val["event"].sum() == 0:
+    #         event_rows = df_train_split[df_train_split["event"] == 1]
+    #         if not event_rows.empty:
+    #             row_to_move = event_rows.sample(n=1, random_state=42)
+    #             df_val = pd.concat([df_val, row_to_move], ignore_index=True)
+    #             df_train_split = df_train_split.drop(row_to_move.index)
+    #             self.log_and_print(f"[Center {center}] ⚠️ Added 1 event sample from train → val to ensure event presence.", "warning")
+    #         else:
+    #             self.log_and_print(f"[Center {center}] ⚠️ No events available to move to validation!", "warning")
+
+    #     self.log_and_print(
+    #         f"[Center {center}] Final splits — Train: {len(df_train_split)}, "
+    #         f"Val: {len(df_val)}, Events (val): {df_val['event'].sum()}",
+    #         "info",
+    #     )
+    #     return df_train_split, df_val
+
+
+    def _split_train_val_event_aware(self, df_train, center):
+        """
+        Event-aware train/validation split for survival models (RSF / FedSurF++).
+        Ensures validation contains at least 2 events.
+        """
+
+        n_events = int(df_train["event"].sum())
+
+        if n_events < 3:
+            raise ValueError(
+                f"[Center {center}] Too few events ({n_events}) to build validation set."
+            )
+
+        # Adaptive validation size
+        if n_events >= 20:
+            val_size = 0.30
+        elif n_events >= 10:
+            val_size = 0.25
+        else:
+            val_size = 0.20
+
+        # Ensure at least 2 validation events
+        min_val_events = 2
+        expected_val_events = int(val_size * n_events)
+
+        if expected_val_events < min_val_events:
+            val_size = min_val_events / n_events
+
+        df_tr, df_val = train_test_split(
+            df_train,
+            test_size=val_size,
+            stratify=df_train["event"],
+            random_state=self.config.random_state + int(center),
         )
 
-        # Ensure validation has at least 1 event
-        if df_val["event"].sum() == 0:
-            event_rows = df_train_split[df_train_split["event"] == 1]
-            if not event_rows.empty:
-                row_to_move = event_rows.sample(n=1, random_state=42)
-                df_val = pd.concat([df_val, row_to_move], ignore_index=True)
-                df_train_split = df_train_split.drop(row_to_move.index)
-                self.log_and_print(f"[Center {center}] ⚠️ Added 1 event sample from train → val to ensure event presence.", "warning")
-            else:
-                self.log_and_print(f"[Center {center}] ⚠️ No events available to move to validation!", "warning")
+        if df_val["event"].sum() < min_val_events:
+            raise RuntimeError(
+                f"[Center {center}] Validation split has "
+                f"{df_val['event'].sum()} events (< {min_val_events})."
+            )
 
         self.log_and_print(
-            f"[Center {center}] Final splits — Train: {len(df_train_split)}, "
-            f"Val: {len(df_val)}, Events (val): {df_val['event'].sum()}",
-            "info",
+            f"[Center {center}] Event-aware split → "
+            f"train={len(df_tr)} (events={df_tr['event'].sum()}), "
+            f"val={len(df_val)} (events={df_val['event'].sum()})"
         )
-        return df_train_split, df_val
+
+        return df_tr, df_val
+
+
+
 
     def _stack_data(self, df, center=None, split="", global_max_time=None):
         """

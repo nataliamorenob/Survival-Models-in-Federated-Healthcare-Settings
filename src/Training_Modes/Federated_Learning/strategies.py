@@ -384,83 +384,207 @@ class FedSurvForest(fl.server.strategy.FedAvg):
             min_available_clients=min_available_clients,
         )
 
-    # -------------------------------------------------------------
-    # ROUND 1: aggregate RSF trees
-    # -------------------------------------------------------------
+
+    # # ROUND 1: aggregate RSF trees
+    # def aggregate_fit(self, server_round, results, failures):
+    #     '''
+    #     This method did get the local trees per client randomly, but weighted per its data size.
+    #     '''
+    #     logger = logging.getLogger("main")
+    #     logger.info(f"[SERVER] Round {server_round}: Aggregating FIT results")
+    #     logger.info(f"  {len(results)} clients returned")
+
+    #     if server_round == 1:
+    #         logger.info("[Server] ROUND 1: Aggregating local RSF forests")
+
+    #         # collect trees + sample counts
+    #         all_trees = []
+    #         client_sizes = []
+
+    #         for client, fit_res in results:
+    #             trees = pickle.loads(fit_res.parameters.tensors[0])
+    #             all_trees.append(trees)
+    #             client_sizes.append(fit_res.num_examples)
+
+    #         client_sizes = np.array(client_sizes)
+    #         total_samples = client_sizes.sum()
+    #         probs = client_sizes / total_samples
+
+    #         # number of global trees
+    #         total_local = sum(len(tlist) for tlist in all_trees)
+    #         NS = total_local if self.num_trees_fed is None else min(self.num_trees_fed, total_local)
+
+    #         # sample client assignments
+    #         sampled_clients = np.random.choice(
+    #             len(all_trees), size=NS, p=probs
+    #         )
+
+    #         trees_per_client = [
+    #             np.sum(sampled_clients == cid)
+    #             for cid in range(len(all_trees))
+    #         ]
+
+    #         # ensure no client is asked for more trees than it has
+    #         actual_avail = np.array([len(tl) for tl in all_trees])
+    #         diff = actual_avail - trees_per_client
+    #         while (diff < 0).any():
+    #             deficit = np.random.choice(np.where(diff < 0)[0])
+    #             surplus = np.random.choice(np.where(diff > 0)[0])
+    #             trees_per_client[deficit] -= 1
+    #             trees_per_client[surplus] += 1
+    #             diff = actual_avail - trees_per_client
+
+    #         # -----------------------------------------------------
+    #         # build global forest
+    #         # -----------------------------------------------------
+    #         global_forest = []
+    #         for cid, n in enumerate(trees_per_client):
+    #             pool = all_trees[cid]
+    #             chosen = np.random.choice(pool, size=n, replace=False)
+    #             global_forest.extend([copy.deepcopy(t) for t in chosen])
+
+    #         logger.info(f"[Server] Global federated forest built: {len(global_forest)} trees")
+
+    #         # SEND to clients in next round
+    #         return (
+    #             fl.common.Parameters(
+    #                 tensors=[pickle.dumps(global_forest)],
+    #                 tensor_type="pickle"
+    #             ),
+    #             {}
+    #         )
+
+    #     # ALL OTHER ROUNDS: nothing to aggregate
+    #     return None, {}
+
+    # def aggregate_fit(self, server_round, results, failures):
+    #     '''
+    #     This method was based on tree client selection by the FedSurF-C metric on the validation set.
+    #     '''
+    #     logger = logging.getLogger("main")
+    #     logger.info(f"[SERVER] Round {server_round}: Aggregating FIT results")
+    #     logger.info(f"  {len(results)} clients returned")
+
+    #     # FedSurF-C: aggregation only happens in round 1
+    #     if server_round == 1:
+    #         logger.info("[Server] ROUND 1: Aggregating FedSurF-C selected trees")
+
+    #         global_forest = []
+    #         client_contributions = []
+
+    #         for client, fit_res in results:
+    #             trees = pickle.loads(fit_res.parameters.tensors[0])
+    #             global_forest.extend([copy.deepcopy(t) for t in trees])
+    #             client_contributions.append(len(trees))
+
+    #         logger.info(
+    #             "[Server] FedSurF-C global forest built → "
+    #             f"{len(global_forest)} trees | "
+    #             f"per-client contributions={client_contributions}"
+    #         )
+
+    #         return (
+    #             fl.common.Parameters(
+    #                 tensors=[pickle.dumps(global_forest)],
+    #                 tensor_type="pickle"
+    #             ),
+    #             {}
+    #         )
+
+    #     # ALL OTHER ROUNDS: nothing to aggregate
+    #     return None, {}
+
     def aggregate_fit(self, server_round, results, failures):
+        """
+        GLOBAL C-index–based tree selection.
+        Each client trains n_trees_local trees.
+        Server selects exactly n_trees_federated trees globally.
+        """
 
         logger = logging.getLogger("main")
         logger.info(f"[SERVER] Round {server_round}: Aggregating FIT results")
-        logger.info(f"  {len(results)} clients returned")
 
-        if server_round == 1:
-            logger.info("[Server] ROUND 1: Aggregating local RSF forests")
+        # We only aggregate trees in round 1
+        if server_round != 1:
+            return None, {}
 
-            # collect trees + sample counts
-            all_trees = []
-            client_sizes = []
-
-            for client, fit_res in results:
-                trees = pickle.loads(fit_res.parameters.tensors[0])
-                all_trees.append(trees)
-                client_sizes.append(fit_res.num_examples)
-
-            client_sizes = np.array(client_sizes)
-            total_samples = client_sizes.sum()
-            probs = client_sizes / total_samples
-
-            # number of global trees
-            total_local = sum(len(tlist) for tlist in all_trees)
-            NS = total_local if self.num_trees_fed is None else min(self.num_trees_fed, total_local)
-
-            # sample client assignments
-            sampled_clients = np.random.choice(
-                len(all_trees), size=NS, p=probs
-            )
-
-            trees_per_client = [
-                np.sum(sampled_clients == cid)
-                for cid in range(len(all_trees))
-            ]
-
-            # ensure no client is asked for more trees than it has
-            actual_avail = np.array([len(tl) for tl in all_trees])
-            diff = actual_avail - trees_per_client
-            while (diff < 0).any():
-                deficit = np.random.choice(np.where(diff < 0)[0])
-                surplus = np.random.choice(np.where(diff > 0)[0])
-                trees_per_client[deficit] -= 1
-                trees_per_client[surplus] += 1
-                diff = actual_avail - trees_per_client
-
-            # -----------------------------------------------------
-            # build global forest
-            # -----------------------------------------------------
-            global_forest = []
-            for cid, n in enumerate(trees_per_client):
-                pool = all_trees[cid]
-                chosen = np.random.choice(pool, size=n, replace=False)
-                global_forest.extend([copy.deepcopy(t) for t in chosen])
-
-            logger.info(f"[Server] Global federated forest built: {len(global_forest)} trees")
-
-            # SEND to clients in next round
-            return (
-                fl.common.Parameters(
-                    tensors=[pickle.dumps(global_forest)],
-                    tensor_type="pickle"
-                ),
-                {}
-            )
+        all_trees = []
+        all_scores = []
+        per_client_counts = {}
 
         # ---------------------------------------------------------
-        # ALL OTHER ROUNDS: nothing to aggregate
+        # 1. Collect all trees + C-index scores from clients
         # ---------------------------------------------------------
-        return None, {}
+        for client, fit_res in results:
+            cid = getattr(client, "cid", "unknown")
 
-    # -------------------------------------------------------------
+            # Each client sent: (trees, cindices)
+            trees, cindices = pickle.loads(fit_res.parameters.tensors[0])
+
+            trees = list(trees)
+            cindices = np.asarray(cindices)
+
+            all_trees.extend(trees)
+            all_scores.extend(cindices)
+            per_client_counts[cid] = len(trees)
+
+        logger.info(
+            "[SERVER] Received trees per client: "
+            + " | ".join(f"Client {cid}: {n}" for cid, n in per_client_counts.items())
+        )
+
+        all_scores = np.asarray(all_scores)
+
+        # ---------------------------------------------------------
+        # 2. Numerical safety (VERY IMPORTANT)
+        # ---------------------------------------------------------
+        all_scores = np.nan_to_num(all_scores, nan=0.5)
+        all_scores[all_scores < 0.5] = 0.5
+
+        # ---------------------------------------------------------
+        # 3. Global probabilistic selection (C-index weighted)
+        # ---------------------------------------------------------
+        probs = all_scores / all_scores.sum()
+
+        N_global = self.num_trees_fed  # = config.n_trees_federated = 120
+
+        if N_global > len(all_trees):
+            logger.warning(
+                f"[SERVER] Requested {N_global} trees, but only "
+                f"{len(all_trees)} available. Clipping."
+            )
+            N_global = len(all_trees)
+
+        selected_idx = np.random.choice(
+            len(all_trees),
+            size=N_global,
+            replace=False,
+            p=probs
+        )
+
+        global_forest = [copy.deepcopy(all_trees[i]) for i in selected_idx]
+
+        logger.info(
+            f"[SERVER] Global forest selected: {len(global_forest)} trees "
+            f"(from {len(all_trees)} total)"
+        )
+
+        # ---------------------------------------------------------
+        # 4. Send global forest to clients
+        # ---------------------------------------------------------
+        return (
+            fl.common.Parameters(
+                tensors=[pickle.dumps(global_forest)],
+                tensor_type="pickle"
+            ),
+            {}
+        )
+
+
+
+
+
     # configure round-by-round client instructions
-    # -------------------------------------------------------------
     def configure_fit(self, server_round, parameters, client_manager):
 
         # ROUND 1: train local RSF

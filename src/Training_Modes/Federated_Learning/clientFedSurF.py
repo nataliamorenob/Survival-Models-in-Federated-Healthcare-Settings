@@ -7,7 +7,8 @@ import numpy as np
 from scipy.interpolate import interp1d
 import os
 from datetime import datetime
-from Exps_runs_randomness.utils_results import append_metrics_to_csv
+from sksurv.metrics import concordance_index_censored
+#from Exps_runs_randomness.utils_results import append_metrics_to_csv #abajo descomentar tbn
 
 
 class FederatedRSFClient(fl.client.Client):
@@ -23,6 +24,8 @@ class FederatedRSFClient(fl.client.Client):
 
         self.X_train = data["X_train"]
         self.y_train = data["y_train"]
+        self.X_val = data["X_val"]
+        self.y_val = data["y_val"]
         self.X_test  = data["X_test"]
         self.y_test  = data["y_test"]
 
@@ -59,27 +62,106 @@ class FederatedRSFClient(fl.client.Client):
         #     raise e
 
 
-    # ---------------------------------------------------------
+
+
     # FIT: train local RSF and send trees to server
-    # ---------------------------------------------------------
-    def fit(self, ins):
-        print(f"[DEBUG][Client {self.cid}] Starting FIT")
+    # def fit(self, ins):
+    #        '''
+    #        This method is the old one (withoput the val set calculation for tree sampling)
+    #        '''
+    #     print(f"[DEBUG][Client {self.cid}] Starting FIT")
 
-        # train local RSF:
-        self.model.fit(self.X_train, self.y_train)
-        trees = self.model.estimators_
+    #     # train local RSF:
+    #     self.model.fit(self.X_train, self.y_train)
+    #     trees = self.model.estimators_
 
-        print(f"[DEBUG][Client {self.cid}] RSF trained, sending {len(self.model.estimators_)} trees")
+    #     print(f"[DEBUG][Client {self.cid}] RSF trained, sending {len(self.model.estimators_)} trees")
     
+    #     return FitRes(
+    #         status=Status(Code.OK, message="OK"),
+    #         parameters=Parameters(
+    #             tensors=[pickle.dumps(trees)],
+    #             tensor_type="pickle"
+    #         ),
+    #         num_examples=len(self.X_train),
+    #         metrics={}
+    #     )
+    
+    
+    def fit(self, ins):
+        print(f"[DEBUG][Client {self.cid}] Starting FIT (FedSurF-C)")
+
+        # --------------------------------------------------
+        # 1. Train local RSF
+        # --------------------------------------------------
+        self.model.fit(self.X_train, self.y_train)
+        all_trees = self.model.estimators_
+
+        print(f"[DEBUG][Client {self.cid}] Trained {len(all_trees)} local trees")
+
+        # --------------------------------------------------
+        # 2. Score each tree on VALIDATION set (plain C-index)
+        # --------------------------------------------------
+        cindices = []
+
+        for tree in all_trees:
+            try:
+                surv_fns = tree.predict_survival_function(self.X_val)
+
+                # simple scalar risk per sample (consistent & stable)
+                risks = np.array([
+                    -np.log(fn.y[-1] + 1e-8) for fn in surv_fns
+                ])
+
+                c = concordance_index_censored(
+                    self.y_val["event"],
+                    self.y_val["time"],
+                    risks
+                )[0]
+
+            except Exception:
+                c = 0.5  # neutral fallback
+
+            cindices.append(c)
+
+        cindices = np.array(cindices)
+        cindices = np.nan_to_num(cindices, nan=0.5)
+        cindices[cindices < 0.5] = 0.5  # safety
+
+
+        # 3. Probabilistic tree sampling (FedSurF-C)
+        probs = cindices / cindices.sum()
+
+        n_send = self.config.n_trees_federated
+        if n_send is None or n_send > len(all_trees):
+            n_send = len(all_trees)
+
+        selected_idx = np.random.choice(
+            len(all_trees),
+            size=n_send,
+            replace=False,
+            p=probs
+        )
+
+        selected_trees = [all_trees[i] for i in selected_idx]
+
+        print(
+            f"[DEBUG][Client {self.cid}] "
+            f"Selected {len(selected_trees)} trees "
+            f"(mean val C-index={cindices[selected_idx].mean():.3f})"
+        )
+
+        # 4. Send ONLY selected trees to server
         return FitRes(
             status=Status(Code.OK, message="OK"),
             parameters=Parameters(
-                tensors=[pickle.dumps(trees)],
+                tensors=[pickle.dumps(selected_trees)],
                 tensor_type="pickle"
             ),
             num_examples=len(self.X_train),
             metrics={}
         )
+
 
 
     # EVALUATE: load global forest and compute metrics:
@@ -144,17 +226,17 @@ class FederatedRSFClient(fl.client.Client):
         )
 
 
-        append_metrics_to_csv(
-            csv_path,
-            {
-                "timestamp": datetime.now().isoformat(),
-                "run_id": run_id,
-                "client_id": self.cid,
-                "c_index": metrics["C-index"],
-                "auc": metrics["AUC"],
-                "ibs": metrics["IBS"],
-            }
-        )
+        # append_metrics_to_csv(
+        #     csv_path,
+        #     {
+        #         "timestamp": datetime.now().isoformat(),
+        #         "run_id": run_id,
+        #         "client_id": self.cid,
+        #         "c_index": metrics["C-index"],
+        #         "auc": metrics["AUC"],
+        #         "ibs": metrics["IBS"],
+        #     }
+        # )
 
 
 
