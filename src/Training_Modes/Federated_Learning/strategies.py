@@ -9,44 +9,107 @@ import flwr as fl
 class CustomFedAvg(FedAvg):
     """Custom FedAvg strategy that logs and properly aggregates parameters."""
 
+    # def aggregate_fit(self, server_round, results, failures):
+    #     if not results:
+    #         return None, {}
+
+    #     logger = logging.getLogger("main")
+    #     logger.info(f"[Server] Aggregating {len(results)} client results for round {server_round}...")
+
+    #     # Convert all client Parameters to numpy arrays
+    #     weights_results = []
+    #     for _, fit_res in results:
+    #         try:
+    #             ndarrays = parameters_to_ndarrays(fit_res.parameters)
+    #             weights_results.append(ndarrays)
+    #         except Exception as e:
+    #             logger.warning(f"[Server] Failed to parse client parameters: {e}")
+
+    #     if not weights_results:
+    #         logger.error("[Server] No valid weights received — skipping aggregation.")
+    #         return None, {}
+
+    #     # Average element-wise across clients
+    #     aggregated_ndarrays = [
+    #         np.mean([weights[i] for weights in weights_results], axis=0)
+    #         for i in range(len(weights_results[0]))
+    #     ]
+
+    #     # Convert back to Flower Parameters object
+    #     aggregated_parameters = ndarrays_to_parameters(aggregated_ndarrays)
+
+    #     # Log aggregation statistics
+    #     means = [np.mean(arr) for arr in aggregated_ndarrays]
+    #     stds = [np.std(arr) for arr in aggregated_ndarrays]
+    #     logger.info(
+    #         f"[Server] Round {server_round}: aggregated weights "
+    #         f"mean={means}, std={stds}"
+    #     )
+
+    #     return aggregated_parameters, {}
+
     def aggregate_fit(self, server_round, results, failures):
-        if not results:
-            return None, {}
-
         logger = logging.getLogger("main")
-        logger.info(f"[Server] Aggregating {len(results)} client results for round {server_round}...")
+        logger.info(f"[SERVER] Round {server_round}: Aggregating FIT results")
 
-        # Convert all client Parameters to numpy arrays
-        weights_results = []
-        for _, fit_res in results:
-            try:
-                ndarrays = parameters_to_ndarrays(fit_res.parameters)
-                weights_results.append(ndarrays)
-            except Exception as e:
-                logger.warning(f"[Server] Failed to parse client parameters: {e}")
-
-        if not weights_results:
-            logger.error("[Server] No valid weights received — skipping aggregation.")
+        if server_round != 1:
             return None, {}
 
-        # Average element-wise across clients
-        aggregated_ndarrays = [
-            np.mean([weights[i] for weights in weights_results], axis=0)
-            for i in range(len(weights_results[0]))
-        ]
+        all_trees = []
+        all_scores = []
+        per_client_counts = []
 
-        # Convert back to Flower Parameters object
-        aggregated_parameters = ndarrays_to_parameters(aggregated_ndarrays)
+        # 1. Collect all trees and scores
+        for client_proxy, fit_res in results:
+            payload = pickle.loads(fit_res.parameters.tensors[0])
+            trees = payload["trees"]
+            scores = payload["scores"]
 
-        # Log aggregation statistics
-        means = [np.mean(arr) for arr in aggregated_ndarrays]
-        stds = [np.std(arr) for arr in aggregated_ndarrays]
-        logger.info(
-            f"[Server] Round {server_round}: aggregated weights "
-            f"mean={means}, std={stds}"
+            all_trees.extend(trees)
+            all_scores.extend(scores)
+            per_client_counts.append(len(trees))
+
+            logger.info(
+                f"[SERVER] Client {client_proxy.cid}: "
+                f"sent {len(trees)} trees "
+                f"(mean val C-index={np.mean(scores):.3f})"
+            )
+
+        all_scores = np.array(all_scores)
+        all_scores = np.nan_to_num(all_scores, nan=0.5)
+        all_scores[all_scores < 0.5] = 0.5
+
+        # 2. Build sampling distribution (FedSurF++-C)
+        probs = all_scores / all_scores.sum()
+
+        N_global = self.num_trees_fed
+        if N_global is None:
+            raise ValueError("n_trees_federated must be set")
+
+        # 3. Sample global forest
+        selected_idx = np.random.choice(
+            len(all_trees),
+            size=N_global,
+            replace=False,
+            p=probs
         )
 
-        return aggregated_parameters, {}
+        global_forest = [copy.deepcopy(all_trees[i]) for i in selected_idx]
+
+        logger.info(
+            f"[SERVER] FedSurF++-C global forest built → "
+            f"{len(global_forest)} trees "
+            f"(from {len(all_trees)} total)"
+        )
+
+        return (
+            fl.common.Parameters(
+                tensors=[pickle.dumps(global_forest)],
+                tensor_type="pickle"
+            ),
+            {}
+        )
+
 
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""
@@ -504,7 +567,7 @@ class FedSurvForest(fl.server.strategy.FedAvg):
         logger = logging.getLogger("main")
         logger.info(f"[SERVER] Round {server_round}: Aggregating FIT results")
 
-        # We only aggregate trees in round 1
+        # Only aggregate in round 1
         if server_round != 1:
             return None, {}
 
@@ -515,18 +578,38 @@ class FedSurvForest(fl.server.strategy.FedAvg):
         # ---------------------------------------------------------
         # 1. Collect all trees + C-index scores from clients
         # ---------------------------------------------------------
-        for client, fit_res in results:
-            cid = getattr(client, "cid", "unknown")
+        for client_proxy, fit_res in results:
+            cid = getattr(client_proxy, "cid", "unknown")
 
-            # Each client sent: (trees, cindices)
-            trees, cindices = pickle.loads(fit_res.parameters.tensors[0])
+            payload = pickle.loads(fit_res.parameters.tensors[0])
 
-            trees = list(trees)
-            cindices = np.asarray(cindices)
+            # ---- STRICT payload validation ----
+            if not isinstance(payload, dict):
+                raise ValueError(f"[SERVER] Client {cid} sent non-dict payload")
+
+            if "trees" not in payload or "scores" not in payload:
+                raise ValueError(
+                    f"[SERVER] Client {cid} payload keys invalid: {payload.keys()}"
+                )
+
+            trees = list(payload["trees"])
+            scores = np.asarray(payload["scores"])
+
+            scores = np.atleast_1d(scores)
+
+            if len(trees) != len(scores):
+                raise ValueError(
+                    f"[SERVER] Client {cid}: {len(trees)} trees but {len(scores)} scores"
+                )
 
             all_trees.extend(trees)
-            all_scores.extend(cindices)
+            all_scores.extend(scores.tolist())
             per_client_counts[cid] = len(trees)
+
+            logger.info(
+                f"[SERVER] Client {cid}: "
+                f"trees={len(trees)}, mean C-index={scores.mean():.3f}"
+            )
 
         logger.info(
             "[SERVER] Received trees per client: "
@@ -536,7 +619,7 @@ class FedSurvForest(fl.server.strategy.FedAvg):
         all_scores = np.asarray(all_scores)
 
         # ---------------------------------------------------------
-        # 2. Numerical safety (VERY IMPORTANT)
+        # 2. Numerical safety
         # ---------------------------------------------------------
         all_scores = np.nan_to_num(all_scores, nan=0.5)
         all_scores[all_scores < 0.5] = 0.5
@@ -546,7 +629,7 @@ class FedSurvForest(fl.server.strategy.FedAvg):
         # ---------------------------------------------------------
         probs = all_scores / all_scores.sum()
 
-        N_global = self.num_trees_fed  # = config.n_trees_federated = 120
+        N_global = self.num_trees_fed  # = config.n_trees_federated
 
         if N_global > len(all_trees):
             logger.warning(
@@ -579,6 +662,7 @@ class FedSurvForest(fl.server.strategy.FedAvg):
             ),
             {}
         )
+
 
 
 
