@@ -226,6 +226,8 @@ from Training_Modes.Federated_Learning.strategies import (
     CustomFedAvg, FedSurvForest, aggregate_evaluate_metrics
 )
 from Training_Modes.Federated_Learning.client import FederatedCoxClient
+from Training_Modes.Centralized_Learning.centralized_run import run_centralized
+from Training_Modes.Local_Learning.local_run import run_local
 
 print("DEBUG: reached end of import section successfully")
 
@@ -264,7 +266,20 @@ def main(config: Config):
     logging.getLogger().setLevel(logging.INFO)
     logger.info(f"Experiment started: {config.experiment_id}")
 
-    # Init RAY
+    if config.training_mode == "federated":
+        logger.info("Federated training mode selected.")
+    elif config.training_mode == "centralized":
+        logger.info("Centralized training mode selected.")
+        run_centralized(config)
+        return
+    elif config.training_mode == "local":
+        logger.info("Local training mode selected.")
+        run_local(config)
+        return
+    else:
+        raise ValueError(f"Unknown training_mode: {config.training_mode}")
+
+    # Init RAY (federated only)
     import ray
     ray.init(
         _memory=2 * 1024 * 1024 * 1024,
@@ -273,9 +288,7 @@ def main(config: Config):
         include_dashboard=False,
     )
 
-    # =====================================================================
     # 1. PRELOAD DATASETS FOR ALL CLIENTS (IMPORTANT FIX)
-    # =====================================================================
     print("\n[PRELOAD] Loading datasets for all clients...")
     preloaded_data = {}
     for cid in range(config.num_clients):
@@ -388,11 +401,34 @@ def main(config: Config):
 
 
 if __name__ == "__main__":
+    # FEDERATED TRAINING:
     user_config = Config(
         model="RSF",
         centers=[0, 1, 2, 3, 4],
         training_mode="federated",
         num_clients=5,
+        strategy="FedSurvForest",
+        num_rounds=2,
+        eval_grid_mode="global"  # or "client"
+    )
+
+    # CENTRALIZED TRAINING:
+    user_config = Config(
+        model="RSF",
+        centers=[0, 1, 2, 3, 4],
+        training_mode="centralized",
+        num_clients=5,
+        strategy="FedSurvForest",
+        num_rounds=2,
+        eval_grid_mode="global"  # or "client"
+    )
+
+    # LOCAL TRAINING:
+    user_config = Config(
+        model="RSF",
+        centers=[0],
+        training_mode="local",
+        num_clients=1,
         strategy="FedSurvForest",
         num_rounds=2,
         eval_grid_mode="global"  # or "client"

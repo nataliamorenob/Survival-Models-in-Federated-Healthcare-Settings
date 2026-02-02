@@ -1,0 +1,131 @@
+import logging
+import numpy as np
+
+from dataset_manager import DatasetManager
+from model_manager import ModelManager
+from utils import evaluate_model, evaluate_rsf
+
+
+# def _build_global_eval_times_if_needed(config, train_df):
+# 	if config.eval_grid_mode != "global" or config.global_eval_times is not None:
+# 		return
+
+# 	if "time" not in train_df.columns:
+# 		return
+
+# 	train_event_times = train_df.loc[train_df["event"] == 1, "time"].values
+# 	if len(train_event_times) > 1:
+# 		union_grid = np.unique(train_event_times)
+# 		global_grid = np.quantile(union_grid, np.linspace(0.05, 0.95, 100))
+# 		config.global_eval_times = global_grid.tolist()
+
+
+def run_centralized(config):
+	logger = logging.getLogger("main")
+	logger.info("[Centralized] Starting centralized training pipeline...")
+
+	dm = DatasetManager(config=config, client_idx=0)
+	data_bundle = dm.get_centralized_dataloaders()
+
+	global_data = data_bundle["global"]
+	per_center = data_bundle.get("per_center", {})
+
+	model_manager = ModelManager(config, client_id=0)
+	model_manager.initialize_model()
+	model = model_manager.get_model()
+
+	metrics_summary = {"global": None, "per_center": {}}
+
+	# if config.model.lower() == "coxph":
+	# 	_build_global_eval_times_if_needed(config, global_data["train"])
+
+	# 	trained_model = model(
+	# 		global_data["train"],
+	# 		config=config,
+	# 		client_id=0,
+	# 		duration_col="time",
+	# 		event_col="event",
+	# 		init_params=None,
+	# 	)
+
+	# 	metrics_summary["global"] = evaluate_model(
+	# 		trained_model,
+	# 		global_data["test"],
+	# 		config,
+	# 		train_data=global_data["train"],
+	# 		client_id=0,
+	# 	)
+
+	# 	for center, center_data in per_center.items():
+	# 		metrics_summary["per_center"][center] = evaluate_model(
+	# 			trained_model,
+	# 			center_data["test"],
+	# 			config,
+	# 			train_data=global_data["train"],
+	# 			client_id=center,
+	# 		)
+
+	# 	logger.info("[Centralized] CoxPH evaluation finished.")
+	# 	return metrics_summary
+
+	# if config.model.lower() == "slr":
+	# 	X_train = global_data["train"].drop(columns=["event"])
+	# 	y_train = global_data["train"]["event"]
+	# 	model.fit(X_train, y_train)
+
+	# 	metrics_summary["global"] = evaluate_model(
+	# 		model,
+	# 		global_data["test"],
+	# 		config,
+	# 		train_data=global_data["train"],
+	# 		client_id=0,
+	# 	)
+
+	# 	for center, center_data in per_center.items():
+	# 		metrics_summary["per_center"][center] = evaluate_model(
+	# 			model,
+	# 			center_data["test"],
+	# 			config,
+	# 			train_data=global_data["train"],
+	# 			client_id=center,
+	# 		)
+
+	# 	logger.info("[Centralized] SLR evaluation finished.")
+	# 	return metrics_summary
+
+	if config.model.lower() == "rsf":
+		logger.info(f"[Centralized] Training RSF with {config.n_trees_local} trees")
+		model.fit(global_data["X_train"], global_data["y_train"])
+		trees = model.estimators_
+		n_trees = len(trees)
+		logger.info(f"[Centralized] Trained {n_trees} trees")
+
+		metrics_summary["global"] = evaluate_rsf(
+			model,
+			data={
+				"X_test": global_data["X_test"],
+				"y_test": global_data["y_test"],
+				"y_train": global_data["y_train"],
+			},
+			client_id=0,
+			config=config,
+		)
+
+		for center, center_data in per_center.items():
+			metrics_summary["per_center"][center] = evaluate_rsf(
+				model,
+				data={
+					"X_test": center_data["X_test"],
+					"y_test": center_data["y_test"],
+					"y_train": global_data["y_train"],
+				},
+				client_id=center,
+				config=config,
+			)
+
+		logger.info("[Centralized] RSF evaluation finished.")
+		return metrics_summary
+
+	raise NotImplementedError(
+		f"Centralized training not implemented for model: {config.model}"
+	)

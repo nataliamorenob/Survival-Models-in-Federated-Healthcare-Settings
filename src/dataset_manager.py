@@ -426,9 +426,8 @@ class DatasetManager:
         return dataloaders
 
 
-    # ----------------------------------------------------------------------
+
     # LOCAL TRAINING MODE (single center)
-    # ----------------------------------------------------------------------
     def get_local_dataloaders(self):
         center = self.config.centers[0]
         self.log_and_print(f"[Local] Loading center {center}...")
@@ -446,40 +445,207 @@ class DatasetManager:
         for df in [df_train, df_test]:
             df["feature_0"] = (df["feature_0"] - age_mean) / age_std
 
-        self.log_and_print(f"[Local] Normalized age (feature_0) with mean={age_mean:.2f}, std={age_std:.2f}")
+        self.log_and_print(
+            f"[Local] Normalized feature_0 (age) with mean={age_mean:.2f}, std={age_std:.2f}"
+        )
+
+        # if self.config.model.lower() == "coxph":
+        #     self.log_and_print("[Local] Model=CoxPH → Using train/test directly.")
+        #     return {"train": df_train, "val": None, "test": df_test}
+
+        # if self.config.model.lower() == "slr":
+        #     self.log_and_print("[Local] Model=SLR → Performing stacking transformation.")
+
+        #     global_max_time = self._get_global_max_time()
+
+        #     df_train_stacked = self._stack_data(
+        #         df_train, center=center, split="train", global_max_time=global_max_time
+        #     )
+        #     df_test_stacked = self._stack_data(
+        #         df_test, center=center, split="test", global_max_time=global_max_time
+        #     )
+
+        #     return {"train": df_train_stacked, "val": None, "test": df_test_stacked}
+
+        if self.config.model.lower() == "rsf":
+            df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
+
+            feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
+            X_train = df_train[feature_cols].values
+            X_val = df_val[feature_cols].values
+            X_test = df_test[feature_cols].values
+
+            from sksurv.util import Surv
+            y_train = Surv.from_arrays(
+                event=df_train["event"].astype(bool),
+                time=df_train["time"].astype(float),
+            )
+            y_val = Surv.from_arrays(
+                event=df_val["event"].astype(bool),
+                time=df_val["time"].astype(float),
+            )
+            y_test = Surv.from_arrays(
+                event=df_test["event"].astype(bool),
+                time=df_test["time"].astype(float),
+            )
+
+            return {
+                "train_df": df_train_split,
+                "val_df": df_val,
+                "test_df": df_test,
+                "X_train": X_train,
+                "X_val": X_val,
+                "X_test": X_test,
+                "y_train": y_train,
+                "y_val": y_val,
+                "y_test": y_test,
+            }
+
+        self.log_and_print("[Local] Unsupported model for local dataloaders.", "warning")
         return {"train": df_train, "val": None, "test": df_test}
 
-    # ----------------------------------------------------------------------
-    # CENTRALIZED TRAINING MODE (all centers combined)
-    # ----------------------------------------------------------------------
+
+    # CENTRALIZED TRAINING MODE (all centers combined):
     def get_centralized_dataloaders(self):
         self.log_and_print(f"[Centralized] Combining data from centers: {self.config.centers}")
-        train_datasets = [FedTcgaBrca(center=c, train=True) for c in self.config.centers]
-        test_datasets = [FedTcgaBrca(center=c, train=False) for c in self.config.centers]
 
-        df_train = pd.concat([self._to_dataframe(ds) for ds in train_datasets], ignore_index=True)
-        df_test = pd.concat([self._to_dataframe(ds) for ds in test_datasets], ignore_index=True)
+        center_train_dfs = {}
+        center_test_dfs = {}
 
-        # Normalize age globally
+        for center in self.config.centers:
+            train_ds = FedTcgaBrca(center=center, train=True)
+            test_ds = FedTcgaBrca(center=center, train=False)
+            center_train_dfs[center] = self._to_dataframe(train_ds)
+            center_test_dfs[center] = self._to_dataframe(test_ds)
+
+        df_train = pd.concat(list(center_train_dfs.values()), ignore_index=True)
+        df_test = pd.concat(list(center_test_dfs.values()), ignore_index=True)
+
+        # Normalize age globally using the combined train set
         age_mean = df_train["feature_0"].mean()
         age_std = df_train["feature_0"].std()
         if age_std == 0:
             age_std = 1.0
+
         for df in [df_train, df_test]:
             df["feature_0"] = (df["feature_0"] - age_mean) / age_std
 
-        self.log_and_print(f"[Centralized] Normalized age (feature_0) with mean={age_mean:.2f}, std={age_std:.2f}")
+        for center, df_center_test in center_test_dfs.items():
+            df_center_test["feature_0"] = (df_center_test["feature_0"] - age_mean) / age_std
 
-        if self.config.model.lower() == "coxph":
-            self.log_and_print(f"[Centralized] Model=CoxPH → Using existing train/test only.")
-            return {"train": df_train, "val": None, "test": df_test}
+        self.log_and_print(
+            f"[Centralized] Normalized feature_0 (age) with mean={age_mean:.2f}, std={age_std:.2f}"
+        )
 
-        self.log_and_print(f"[Centralized] Splitting 80/20 train/val ...")
-        df_train_split, df_val = self._split_train_val(df_train, "centralized")
-        df_val["feature_0"] = (df_val["feature_0"] - age_mean) / age_std
+        per_center = {}
 
-        self.log_and_print(f"[Centralized] Finished building centralized dataloaders ✅")
-        return {"train": df_train_split, "val": df_val, "test": df_test}
+        # # CoxPH model
+        # if self.config.model.lower() == "coxph":
+        #     self.log_and_print("[Centralized] Model=CoxPH → Using train/test directly.")
+
+        #     for center, df_center_test in center_test_dfs.items():
+        #         per_center[center] = {"test": df_center_test}
+
+        #     return {
+        #         "global": {"train": df_train, "val": None, "test": df_test},
+        #         "per_center": per_center,
+        #     }
+
+        # # Stacked Logistic Regression (SLR) model
+        # if self.config.model.lower() == "slr":
+        #     self.log_and_print("[Centralized] Model=SLR → Performing stacking transformation.")
+
+        #     global_max_time = self._get_global_max_time()
+
+        #     df_train_stacked = self._stack_data(
+        #         df_train, center="centralized", split="train", global_max_time=global_max_time
+        #     )
+        #     df_test_stacked = self._stack_data(
+        #         df_test, center="centralized", split="test", global_max_time=global_max_time
+        #     )
+
+        #     for center, df_center_test in center_test_dfs.items():
+        #         per_center[center] = {
+        #             "test": self._stack_data(
+        #                 df_center_test,
+        #                 center=f"centralized_{center}",
+        #                 split="test",
+        #                 global_max_time=global_max_time,
+        #             )
+        #         }
+
+        #     return {
+        #         "global": {"train": df_train_stacked, "val": None, "test": df_test_stacked},
+        #         "per_center": per_center,
+        #     }
+
+        # Random Survival Forest (RSF) model
+        if self.config.model.lower() == "rsf":
+            df_train_split, df_val = self._split_train_val_event_aware(df_train, center=0)
+
+            global_data = {
+                "train_df": df_train_split,
+                "val_df": df_val,
+                "test_df": df_test,
+            }
+
+            feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
+            X_train = df_train[feature_cols].values
+            X_val = df_val[feature_cols].values
+            X_test = df_test[feature_cols].values
+
+            from sksurv.util import Surv
+            y_train = Surv.from_arrays(
+                event=df_train["event"].astype(bool),
+                time=df_train["time"].astype(float),
+            )
+            y_val = Surv.from_arrays(
+                event=df_val["event"].astype(bool),
+                time=df_val["time"].astype(float),
+            )
+            y_test = Surv.from_arrays(
+                event=df_test["event"].astype(bool),
+                time=df_test["time"].astype(float),
+            )
+
+            global_data.update(
+                {
+                    "X_train": X_train,
+                    "X_val": X_val,
+                    "X_test": X_test,
+                    "y_train": y_train,
+                    "y_val": y_val,
+                    "y_test": y_test,
+                }
+            )
+
+            for center, df_center_test in center_test_dfs.items():
+                X_test_center = df_center_test[feature_cols].values
+                y_test_center = Surv.from_arrays(
+                    event=df_center_test["event"].astype(bool),
+                    time=df_center_test["time"].astype(float),
+                )
+                per_center[center] = {
+                    "X_test": X_test_center,
+                    "y_test": y_test_center,
+                    "test_df": df_center_test,
+                }
+
+            return {"global": global_data, "per_center": per_center}
+
+        # # Deep models / other
+        # self.log_and_print("[Centralized] Splitting 80/20 train/val ...")
+        # df_train_split, df_val = self._split_train_val(df_train, "centralized")
+        # df_val["feature_0"] = (df_val["feature_0"] - age_mean) / age_std
+
+        for center, df_center_test in center_test_dfs.items():
+            per_center[center] = {"test": df_center_test}
+
+        self.log_and_print("[Centralized] Finished building centralized dataloaders")
+        return {
+            "global": {"train": df_train_split, "val": df_val, "test": df_test},
+            "per_center": per_center,
+        }
 
     # ----------------------------------------------------------------------
     # HELPERS
