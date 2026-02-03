@@ -1,9 +1,13 @@
 import logging
+import os
+from datetime import datetime
+
 import numpy as np
 
 from dataset_manager import DatasetManager
 from model_manager import ModelManager
 from utils import evaluate_model, evaluate_rsf
+from Exps_runs_randomness.utils_results import append_metrics_to_csv
 
 
 # def _build_global_eval_times_if_needed(config, train_df):
@@ -121,6 +125,41 @@ def run_centralized(config):
 				},
 				client_id=center,
 				config=config,
+			)
+
+		run_id = os.environ.get("RUN_ID", "unknown")
+		csv_path = os.environ.get(
+			"OUTPUT_CSV",
+			os.path.join(
+				os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+				"results_randomness_exps",
+				f"run_{run_id}.csv",
+			),
+		)
+
+		append_metrics_to_csv(
+			csv_path,
+			{
+				"timestamp": datetime.now().isoformat(),
+				"run_id": run_id,
+				"client_id": "centralized_global",
+				"c_index": metrics_summary["global"]["C-index"],
+				"auc": metrics_summary["global"]["AUC"],
+				"ibs": metrics_summary["global"]["IBS"],
+			},
+		)
+
+		for center, metrics in metrics_summary["per_center"].items():
+			append_metrics_to_csv(
+				csv_path,
+				{
+					"timestamp": datetime.now().isoformat(),
+					"run_id": run_id,
+					"client_id": f"centralized_{center}",
+					"c_index": metrics["C-index"],
+					"auc": metrics["AUC"],
+					"ibs": metrics["IBS"],
+				},
 			)
 
 		logger.info("[Centralized] RSF evaluation finished.")
