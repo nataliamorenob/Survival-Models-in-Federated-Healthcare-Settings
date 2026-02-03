@@ -21,9 +21,14 @@ class ModelManager:
                 f"global_seed={self.config.random_state} "
                 f"client_seed={client_seed}"
             )
-            
+			
+            n_estimators = (
+                self.config.n_trees_federated
+                if self.config.training_mode == "centralized"
+                else self.config.n_trees_local
+            )
             self.model = SurvivalRandomForest(
-                n_estimators=self.config.n_trees_local,
+                n_estimators=n_estimators,
                 min_samples_split=self.config.min_samples_split,
                 min_samples_leaf=self.config.min_samples_leaf,
                 random_state=client_seed)

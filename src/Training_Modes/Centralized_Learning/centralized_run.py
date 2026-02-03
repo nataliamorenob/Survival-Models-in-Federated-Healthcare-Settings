@@ -98,7 +98,7 @@ def run_centralized(config):
 	# 	return metrics_summary
 
 	if config.model.lower() == "rsf":
-		logger.info(f"[Centralized] Training RSF with {config.n_trees_local} trees")
+		logger.info(f"[Centralized] Training RSF with {config.n_trees_federated} trees")
 		model.fit(global_data["X_train"], global_data["y_train"])
 		trees = model.estimators_
 		n_trees = len(trees)
