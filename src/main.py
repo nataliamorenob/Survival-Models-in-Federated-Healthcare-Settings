@@ -402,35 +402,35 @@ def main(config: Config):
 
 if __name__ == "__main__":
     # FEDERATED TRAINING:
-    user_config = Config(
-        model="RSF",
-        centers=[0, 1, 2, 3, 4],
-        training_mode="federated",
-        num_clients=5,
-        strategy="FedSurvForest",
-        num_rounds=2,
-        eval_grid_mode="global"  # or "client"
-    )
+    # user_config = Config(
+    #     model="RSF",
+    #     centers=[0, 1, 2],
+    #     training_mode="federated",
+    #     num_clients=3,
+    #     strategy="FedSurvForest",
+    #     num_rounds=2,
+    #     eval_grid_mode="global"  # or "client"
+    # )
 
     # CENTRALIZED TRAINING:
     user_config = Config(
         model="RSF",
-        centers=[0, 1, 2, 3, 4],
+        centers=[0, 1, 2],
         training_mode="centralized",
-        num_clients=5,
+        num_clients=3,
         strategy="FedSurvForest",
         num_rounds=2,
         eval_grid_mode="global"  # or "client"
     )
 
-    # LOCAL TRAINING:
-    user_config = Config(
-        model="RSF",
-        centers=[0],
-        training_mode="local",
-        num_clients=1,
-        strategy="FedSurvForest",
-        num_rounds=2,
-        eval_grid_mode="global"  # or "client"
-    )
+    # # LOCAL TRAINING:
+    # user_config = Config(
+    #     model="RSF",
+    #     centers=[0],
+    #     training_mode="local",
+    #     num_clients=1,
+    #     strategy="FedSurvForest",
+    #     num_rounds=2,
+    #     eval_grid_mode="global"  # or "client"
+    # )
     main(user_config)

@@ -1006,7 +1006,7 @@ def evaluate_rsf(model, data, client_id, config):
     # DEBGUG:
     print(f"[DEBUG][Client {client_id}] Checking event / risk counts per eval_time:")
 
-    for i, t in enumerate(eval_times):
+    for i, t in enumerate(eval_times): 
         n_events = np.sum((y_test["event"] == 1) & (y_test["time"] <= t))
         n_at_risk = np.sum(y_test["time"] >= t)
 
