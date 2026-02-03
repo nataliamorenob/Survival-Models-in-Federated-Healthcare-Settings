@@ -583,6 +583,13 @@ class DatasetManager:
         if self.config.model.lower() == "rsf":
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center=0)
 
+            self.log_and_print(
+                "[Centralized] Combined dataset sizes → "
+                f"train={len(df_train_split)} (events={df_train_split['event'].sum()}), "
+                f"val={len(df_val)} (events={df_val['event'].sum()}), "
+                f"test={len(df_test)} (events={df_test['event'].sum()})"
+            )
+
             global_data = {
                 "train_df": df_train_split,
                 "val_df": df_val,
