@@ -274,6 +274,10 @@ def main(config: Config):
         return
     elif config.training_mode == "local":
         logger.info("Local training mode selected.")
+        if config.num_clients != 1:
+            raise ValueError(
+                f"Local mode requires num_clients=1, got {config.num_clients}"
+            )
         run_local(config)
         return
     else:

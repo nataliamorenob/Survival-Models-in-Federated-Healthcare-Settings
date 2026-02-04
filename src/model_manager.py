@@ -22,11 +22,14 @@ class ModelManager:
                 f"client_seed={client_seed}"
             )
 			
+            # Both centralized and local use different number of trees (since we only have global forest and not local forests)
             n_estimators = (
                 self.config.n_trees_federated
-                if self.config.training_mode == "centralized"
+                if self.config.training_mode in ("centralized", "local")
                 else self.config.n_trees_local
             )
+
+
             self.model = SurvivalRandomForest(
                 n_estimators=n_estimators,
                 min_samples_split=self.config.min_samples_split,
