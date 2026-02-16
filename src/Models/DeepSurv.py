@@ -301,7 +301,9 @@ class DeepSurv:
         """
         self.network.eval()
         with torch.no_grad():
-            X_tensor = torch.FloatTensor(X).to(self.device)
+            # Ensure array is contiguous and writable
+            X_copy = np.ascontiguousarray(X)
+            X_tensor = torch.FloatTensor(X_copy).to(self.device)
             risk_pred = self.network(X_tensor)
             risk_scores = risk_pred.cpu().numpy().flatten()
         return risk_scores

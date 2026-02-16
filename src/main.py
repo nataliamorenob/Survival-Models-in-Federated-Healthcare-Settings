@@ -285,31 +285,31 @@ def main(config: Config):
 
     # Init RAY (federated only)
     import ray
+    import gc
     ray.init(
-        _memory=2 * 1024 * 1024 * 1024,
-        object_store_memory=512 * 1024 * 1024,
+        _memory=4 * 1024 * 1024 * 1024,  # 4GB per worker (increased from 2GB)
+        object_store_memory=2 * 1024 * 1024 * 1024,  # 2GB object store (increased from 512MB)
         ignore_reinit_error=True,
         include_dashboard=False,
     )
 
-    # 1. PRELOAD DATASETS FOR ALL CLIENTS (IMPORTANT FIX)
-    print("\n[PRELOAD] Loading datasets for all clients...")
-    preloaded_data = {}
+    # Build eval_times_per_client by loading metadata only (no full preload)
+    print("\n[METADATA] Loading eval_times for all clients...")
     for cid in range(config.num_clients):
         dm = DatasetManager(config=config, client_idx=cid)
-        dataloaders = dm.get_federated_dataloaders()
-
-        preloaded_data[cid] = dataloaders
-
-        # DM MUST populate config.eval_times_per_client[cid]
+        _ = dm.get_federated_dataloaders()  # This populates eval_times_per_client
+        
         if cid not in config.eval_times_per_client:
             raise RuntimeError(
                 f"[FATAL] DatasetManager did NOT populate eval_times_per_client[{cid}]!"
             )
+        
+        print(f"[METADATA] Client {cid}: eval_times len={len(config.eval_times_per_client[cid])}")
+        
+        # Force garbage collection after each client to free memory
+        gc.collect()
 
-        print(f"[PRELOAD] Client {cid}: loaded eval_times len={len(config.eval_times_per_client[cid])}")
-
-    print("[PRELOAD] All datasets loaded.\n")
+    print("[METADATA] All eval_times loaded.\n")
 
     # =====================================================================
     # 2. BUILD GLOBAL GRID (Only after eval_times_per_client exists)
@@ -339,7 +339,9 @@ def main(config: Config):
         init_logging(config)
         cid_int = int(cid)
 
-        dataloaders = preloaded_data[cid_int]
+        # Load data on-demand (not preloaded) to save memory
+        dm = DatasetManager(config=config, client_idx=cid_int)
+        dataloaders = dm.get_federated_dataloaders()
 
         model_manager = ModelManager(config, client_id=cid_int)
         model_manager.initialize_model()
