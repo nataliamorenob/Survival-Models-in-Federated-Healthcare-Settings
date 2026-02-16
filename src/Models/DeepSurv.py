@@ -73,14 +73,37 @@ class NegativeLogLikelihood(nn.Module):
         self.reg = Regularization(order=2, weight_decay=self.L2_reg)
 
     def forward(self, risk_pred, y, e, model):
+        # Clamp risk predictions to prevent overflow in exp()
+        risk_pred = torch.clamp(risk_pred, min=-50, max=50)
+        
         mask = torch.ones(y.shape[0], y.shape[0])
         mask[(y.T - y) > 0] = 0
+        
+        # Add numerical stability
         log_loss = torch.exp(risk_pred) * mask
-        log_loss = torch.sum(log_loss, dim=0) / torch.sum(mask, dim=0)
+        sum_mask = torch.sum(mask, dim=0)
+        sum_mask = torch.clamp(sum_mask, min=1.0)  # Prevent division by zero
+        
+        log_loss = torch.sum(log_loss, dim=0) / sum_mask
+        log_loss = torch.clamp(log_loss, min=1e-7)  # Prevent log(0)
         log_loss = torch.log(log_loss).reshape(-1, 1)
-        neg_log_loss = -torch.sum((risk_pred-log_loss) * e) / torch.sum(e)
+        
+        # Calculate negative log likelihood
+        num_events = torch.sum(e)
+        if num_events == 0:
+            return torch.tensor(0.0, requires_grad=True)  # No events, return zero loss
+        
+        neg_log_loss = -torch.sum((risk_pred - log_loss) * e) / num_events
         l2_loss = self.reg(model)
-        return neg_log_loss + l2_loss
+        
+        total_loss = neg_log_loss + l2_loss
+        
+        # Check for NaN/inf and return a large finite value instead
+        if torch.isnan(total_loss) or torch.isinf(total_loss):
+            print("[WARNING] Loss is NaN/Inf, returning large finite value")
+            return torch.tensor(1000.0, requires_grad=True)
+        
+        return total_loss
 
 
 class DeepSurv:
