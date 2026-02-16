@@ -66,10 +66,7 @@ class FederatedDeepSurvClient(fl.client.Client):
             GetParametersRes with serialized parameters
         """
         # Extract weights as numpy arrays
-        parameters = [
-            param.cpu().detach().numpy() 
-            for param in self.model.network.state_dict().values()
-        ]
+        parameters = self._get_parameters_as_arrays()
         
         # Convert to bytes for transmission
         tensors = [param.tobytes() for param in parameters]
@@ -81,6 +78,13 @@ class FederatedDeepSurvClient(fl.client.Client):
                 tensor_type="numpy"
             )
         )
+
+    def _get_parameters_as_arrays(self):
+        """Helper method to get parameters as list of numpy arrays."""
+        return [
+            param.cpu().detach().numpy() 
+            for param in self.model.network.state_dict().values()
+        ]
 
     def set_parameters(self, parameters: NDArrays) -> None:
         """
@@ -133,8 +137,8 @@ class FederatedDeepSurvClient(fl.client.Client):
         # Clear optimizer state to reduce memory usage between rounds
         self.model.reset_optimizer_state()
 
-        # Extract updated weights
-        parameters = self.get_parameters()
+        # Extract updated weights as numpy arrays
+        parameters = self._get_parameters_as_arrays()
 
         # Convert to bytes for transmission
         tensors = [param.tobytes() for param in parameters]
