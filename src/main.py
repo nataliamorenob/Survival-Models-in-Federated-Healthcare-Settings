@@ -462,7 +462,7 @@ if __name__ == "__main__":
     # # LOCAL TRAINING:
     # user_config = Config(
     #     model="RSF",
-    #     centers=[0],
+    #     centers=[4],
     #     training_mode="local",
     #     num_clients=1,
     #     strategy="FedSurvForest",
