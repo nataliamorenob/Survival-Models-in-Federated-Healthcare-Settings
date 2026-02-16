@@ -126,11 +126,13 @@ class FederatedDeepSurvClient(fl.client.Client):
                 param_idx += 1
             self.set_parameters(params_list)
 
-        # Train locally using LOCAL risk sets
+        # Train locally using LOCAL risk sets with validation for early stopping
         # NOTE: This is the biased approximation - risk sets only contain local patients
         self.model.fit(
             self.X_train, 
             self.y_train,
+            X_val=self.X_val,
+            y_val=self.y_val,
             verbose=False  # Reduce output in federated setting
         )
 

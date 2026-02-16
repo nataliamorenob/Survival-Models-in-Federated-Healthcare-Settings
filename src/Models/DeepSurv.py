@@ -220,11 +220,42 @@ class DeepSurv:
             drop_last=True  # Skip last incomplete batch to avoid BatchNorm errors
         )
         
+        # Prepare validation data if provided
+        val_dataloader = None
+        if X_val is not None and y_val is not None:
+            val_events = y_val['event'].astype(np.float32)
+            val_times = y_val['time'].astype(np.float32)
+            val_sort_idx = np.argsort(val_times)[::-1]
+            
+            X_val_sorted = X_val[val_sort_idx]
+            val_times_sorted = val_times[val_sort_idx]
+            val_events_sorted = val_events[val_sort_idx]
+            
+            X_val_tensor = torch.FloatTensor(X_val_sorted).to(self.device)
+            val_times_tensor = torch.FloatTensor(val_times_sorted).reshape(-1, 1).to(self.device)
+            val_events_tensor = torch.FloatTensor(val_events_sorted).reshape(-1, 1).to(self.device)
+            
+            val_dataset = TensorDataset(X_val_tensor, val_times_tensor, val_events_tensor)
+            val_dataloader = DataLoader(
+                val_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                drop_last=False
+            )
+        
+        # Early stopping parameters
+        best_val_loss = float('inf')
+        best_epoch = 0
+        patience = 5  # Stop if no improvement for 5 epochs
+        patience_counter = 0
+        best_state_dict = None
+        
         # Training loop
         self.network.train()
         print(f"[DeepSurv] Starting training for {self.epochs} epochs...")
         
         for epoch in range(self.epochs):
+            # Training phase
             epoch_loss = 0
             n_batches = 0
             
@@ -246,14 +277,57 @@ class DeepSurv:
             
             avg_loss = epoch_loss / n_batches
             
-            # Log every 5 epochs to monitor training
-            if (epoch + 1) % 5 == 0 or epoch == 0:
-                print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
+            # Validation phase
+            if val_dataloader is not None:
+                self.network.eval()
+                val_loss = 0
+                val_batches = 0
+                
+                with torch.no_grad():
+                    for batch_X, batch_t, batch_e in val_dataloader:
+                        risk_pred = self.network(batch_X)
+                        loss = self.criterion(risk_pred, batch_t, batch_e, self.network)
+                        val_loss += loss.item()
+                        val_batches += 1
+                
+                avg_val_loss = val_loss / val_batches
+                self.network.train()
+                
+                # Early stopping check
+                if avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
+                    best_epoch = epoch
+                    patience_counter = 0
+                    # Save best model state
+                    best_state_dict = {k: v.cpu().clone() for k, v in self.network.state_dict().items()}
+                else:
+                    patience_counter += 1
+                
+                # Log every 5 epochs
+                if (epoch + 1) % 5 == 0 or epoch == 0:
+                    print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+                
+                # Early stopping
+                if patience_counter >= patience:
+                    print(f"[DeepSurv] Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1}, Best val loss: {best_val_loss:.4f}")
+                    # Restore best model
+                    self.network.load_state_dict({k: v.to(self.device) for k, v in best_state_dict.items()})
+                    break
+            else:
+                # No validation - just log training loss
+                if (epoch + 1) % 5 == 0 or epoch == 0:
+                    print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
             
             if verbose and (epoch + 1) % 10 == 0:
-                self.logger.info(f"Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
+                if val_dataloader is not None:
+                    self.logger.info(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+                else:
+                    self.logger.info(f"Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
         
-        print(f"[DeepSurv] Training finished. Final loss: {avg_loss:.4f}")
+        if val_dataloader is not None and best_state_dict is not None:
+            print(f"[DeepSurv] Training finished. Best epoch: {best_epoch+1}, Best val loss: {best_val_loss:.4f}")
+        else:
+            print(f"[DeepSurv] Training finished. Final loss: {avg_loss:.4f}")
         
         # After training, estimate baseline hazard using Breslow estimator
         self._estimate_baseline_hazard(X, y)
