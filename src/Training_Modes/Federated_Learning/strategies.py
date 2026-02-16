@@ -4,6 +4,116 @@ from flwr.server.strategy import FedAvg, FedAdam, FedAdagrad, FedYogi, FedProx
 from flwr.common import parameters_to_ndarrays, ndarrays_to_parameters
 import copy
 import flwr as fl
+import pickle
+
+
+class DeepSurvFedAvg(FedAvg):
+    """
+    FedAvg strategy for DeepSurv (PyTorch weight averaging).
+    
+    Uses standard federated averaging for neural network weights.
+    Each client trains locally using local risk sets (biased approximation).
+    """
+
+    def aggregate_fit(self, server_round, results, failures):
+        """
+        Aggregate DeepSurv model weights from clients.
+        
+        Standard FedAvg: w_global = Σ(n_k/n_total * w_k)
+        """
+        if not results:
+            return None, {}
+
+        logger = logging.getLogger("main")
+        logger.info(f"[Server] Round {server_round}: Aggregating DeepSurv weights from {len(results)} clients")
+
+        # Extract weights and sample sizes
+        weights_list = []
+        num_examples_list = []
+
+        for client_proxy, fit_res in results:
+            # Convert bytes back to numpy arrays
+            tensors = fit_res.parameters.tensors
+            weights = [np.frombuffer(t, dtype=np.float32) for t in tensors]
+            weights_list.append(weights)
+            num_examples_list.append(fit_res.num_examples)
+
+        # Compute weighted average
+        total_examples = sum(num_examples_list)
+        aggregated_weights = []
+
+        for i in range(len(weights_list[0])):
+            layer_weights = [
+                weights[i] * (num_examples_list[j] / total_examples)
+                for j, weights in enumerate(weights_list)
+            ]
+            aggregated_weights.append(np.sum(layer_weights, axis=0))
+
+        # Convert back to bytes
+        aggregated_tensors = [w.tobytes() for w in aggregated_weights]
+
+        logger.info(
+            f"[Server] Round {server_round}: aggregated {len(aggregated_weights)} weight tensors"
+        )
+
+        return (
+            fl.common.Parameters(
+                tensors=aggregated_tensors,
+                tensor_type="numpy"
+            ),
+            {}
+        )
+
+    def evaluate(self, server_round, parameters, config=None):
+        """Skip evaluation on round 0; use parent behavior otherwise."""
+        if server_round == 0:
+            logging.getLogger("main").info(
+                "[Server] Skipping evaluation for round 0 (model not yet trained)."
+            )
+            return None
+        return super().evaluate(server_round, parameters)
+
+    def aggregate_evaluate(self, server_round, results, failures):
+        """Aggregate evaluation metrics and log per-client + aggregated results."""
+        logger = logging.getLogger("main")
+
+        if not results:
+            logger.warning(f"[Server] No evaluation results in round {server_round}.")
+            return None, {}
+
+        # Log individual client metrics
+        logger.info(f"──────────────────────────────────────────────")
+        logger.info(f"[Server] Round {server_round} - Client Metrics:")
+        logger.info(f"──────────────────────────────────────────────")
+
+        metrics_dict = {}
+        for client_proxy, evaluate_res in results:
+            client_id = getattr(client_proxy, "cid", "Unknown")
+            metrics = evaluate_res.metrics
+
+            client_name = metrics.get("client_name", f"Client {client_id}")
+            logger.info(
+                f" → {client_name} (ID {client_id}): "
+                f"C-index={metrics.get('C-index', np.nan):.4f}, "
+                f"AUC={metrics.get('AUC', np.nan):.4f}, "
+                f"IBS={metrics.get('IBS', np.nan):.4f}"
+            )
+
+            metrics_dict[client_id] = metrics
+
+        logger.info(f"──────────────────────────────────────────────")
+
+        # Aggregate across clients
+        aggregated_metrics = aggregate_evaluate_metrics([(cid, m) for cid, m in metrics_dict.items()])
+
+        logger.info(
+            f"[Server] Round {server_round} - Aggregated Metrics → "
+            f"C-index={aggregated_metrics.get('C-index', np.nan):.4f}, "
+            f"AUC={aggregated_metrics.get('AUC', np.nan):.4f}, "
+            f"IBS={aggregated_metrics.get('IBS', np.nan):.4f}"
+        )
+
+        return None, aggregated_metrics
 
 
 class CustomFedAvg(FedAvg):

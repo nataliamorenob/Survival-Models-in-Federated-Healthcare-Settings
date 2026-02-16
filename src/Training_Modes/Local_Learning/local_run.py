@@ -4,7 +4,7 @@ from datetime import datetime
 
 from dataset_manager import DatasetManager
 from model_manager import ModelManager
-from utils import evaluate_model, evaluate_rsf
+from utils import evaluate_model, evaluate_rsf, evaluate_deepsurv
 from Exps_runs_randomness.utils_results import append_metrics_to_csv
 
 
@@ -93,6 +93,46 @@ def run_local(config):
 			},
 		)
 		logger.info("[Local] RSF evaluation finished.")
+		return metrics
+
+	if config.model.lower() == "deepsurv":
+		logger.info(f"[Local] Training DeepSurv for {config.num_epochs} epochs")
+		model.fit(data["X_train"], data["y_train"], verbose=True)
+		logger.info(f"[Local] DeepSurv training completed")
+
+		metrics = evaluate_deepsurv(
+			model,
+			data={
+				"X_test": data["X_test"],
+				"y_test": data["y_test"],
+				"y_train": data["y_train"],
+			},
+			client_id=0,
+			config=config,
+		)
+
+		run_id = os.environ.get("RUN_ID", "unknown")
+		csv_path = os.environ.get(
+			"OUTPUT_CSV",
+			os.path.join(
+				os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+				"results_randomness_exps",
+				f"run_{run_id}.csv",
+			),
+		)
+
+		append_metrics_to_csv(
+			csv_path,
+			{
+				"timestamp": datetime.now().isoformat(),
+				"run_id": run_id,
+				"client_id": "local_0",
+				"c_index": metrics["C-index"],
+				"auc": metrics.get("AUC", float('nan')),
+				"ibs": metrics.get("IBS", float('nan')),
+			},
+		)
+		logger.info("[Local] DeepSurv evaluation finished.")
 		return metrics
 
 	raise NotImplementedError(

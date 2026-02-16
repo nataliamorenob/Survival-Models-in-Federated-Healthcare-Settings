@@ -223,7 +223,7 @@ from config import Config
 from dataset_manager import DatasetManager
 from model_manager import ModelManager
 from Training_Modes.Federated_Learning.strategies import (
-    CustomFedAvg, FedSurvForest, aggregate_evaluate_metrics
+    CustomFedAvg, FedSurvForest, DeepSurvFedAvg, aggregate_evaluate_metrics
 )
 from Training_Modes.Federated_Learning.client import FederatedCoxClient
 from Training_Modes.Centralized_Learning.centralized_run import run_centralized
@@ -355,6 +355,16 @@ def main(config: Config):
                 dataloaders=dataloaders
             ).to_client()
 
+        elif config.model == "DeepSurv":
+            from Training_Modes.Federated_Learning.clientDeepSurv import FederatedDeepSurvClient
+            return FederatedDeepSurvClient(
+                cid=cid_int,
+                name=config.centers[cid_int],
+                model=model,
+                config=config,
+                dataloaders=dataloaders
+            ).to_client()
+
         elif config.model == "SLR":
             return FederatedCoxClient(
                 cid=cid_int,
@@ -368,7 +378,16 @@ def main(config: Config):
     # =====================================================================
     # 4. Build Strategy
     # =====================================================================
-    if config.strategy == "FedSurvForest":
+    if config.model == "DeepSurv":
+        logger.info("[Global] Using DeepSurvFedAvg strategy (local risk set approximation)")
+        strategy = DeepSurvFedAvg(
+            fraction_fit=1.0,
+            fraction_evaluate=1.0,
+            min_fit_clients=config.num_clients,
+            min_evaluate_clients=config.num_clients,
+            min_available_clients=config.num_clients,
+        )
+    elif config.strategy == "FedSurvForest":
         logger.info("[Global] Using FedSurvForest strategy")
         strategy = FedSurvForest(
             fraction_fit=1.0,
@@ -405,7 +424,18 @@ def main(config: Config):
 
 
 if __name__ == "__main__":
-    # FEDERATED TRAINING:
+    # FEDERATED DEEPSURV TRAINING (Local Risk Set Approximation):
+    user_config = Config(
+        model="DeepSurv",
+        centers=[0, 1, 2, 3, 4],
+        training_mode="federated",
+        num_clients=5,
+        num_rounds=10,
+        num_epochs=20,  # Local epochs per round
+        eval_grid_mode="global"
+    )
+
+    # FEDERATED RSF TRAINING:
     # user_config = Config(
     #     model="RSF",
     #     centers=[0, 1, 2],
@@ -416,16 +446,16 @@ if __name__ == "__main__":
     #     eval_grid_mode="global"  # or "client"
     # )
 
-    # CENTRALIZED TRAINING:
-    user_config = Config(
-        model="RSF",
-        centers=[0, 1, 2],
-        training_mode="centralized",
-        num_clients=3,
-        strategy="FedSurvForest",
-        num_rounds=2,
-        eval_grid_mode="global"  # or "client"
-    )
+    # # CENTRALIZED TRAINING:
+    # user_config = Config(
+    #     model="RSF",
+    #     centers=[0, 1, 2],
+    #     training_mode="centralized",
+    #     num_clients=3,
+    #     strategy="FedSurvForest",
+    #     num_rounds=2,
+    #     eval_grid_mode="global"  # or "client"
+    # )
 
     # # LOCAL TRAINING:
     # user_config = Config(
