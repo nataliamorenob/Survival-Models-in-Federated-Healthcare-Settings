@@ -190,7 +190,12 @@ class DeepSurv:
         
         # Create dataset and dataloader
         dataset = TensorDataset(X_tensor, times_tensor, events_tensor)
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
+        dataloader = DataLoader(
+            dataset, 
+            batch_size=self.batch_size, 
+            shuffle=False,
+            drop_last=True  # Skip last incomplete batch to avoid BatchNorm errors
+        )
         
         # Training loop
         self.network.train()
