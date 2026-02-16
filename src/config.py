@@ -26,7 +26,7 @@ class Config:
     strategy: str = "FedAvg"
     num_rounds: int = 2
     num_epochs: int = 2
-    batch_size: int = 32
+    batch_size: int = 16  # Increased from 8 - better for small datasets with dropout
     num_time_bins: int = 100
     strategy: str = "FedAvg"
     lr: float = 0.001
@@ -55,12 +55,12 @@ class Config:
     min_samples_leaf: int = 10
     #random_state: int = 42
 
-    # DEEPSURV PARAMETERS (reduced model size for memory efficiency):
-    deepsurv_hidden_layers: list = field(default_factory=lambda: [32, 16])  # Reduced from [64, 32, 16]
-    deepsurv_dropout: float = 0.3
-    deepsurv_batch_norm: bool = False  # Disable BatchNorm to save memory and avoid batch size issues
-    deepsurv_activation: str = 'ReLU'  # Options: 'ReLU', 'Tanh', 'SELU', 'LeakyReLU'
-    deepsurv_l2_reg: float = 0.001
+    # DEEPSURV PARAMETERS (optimized for small datasets):
+    deepsurv_hidden_layers: list = field(default_factory=lambda: [64, 32])  # Slightly larger
+    deepsurv_dropout: float = 0.1  # Reduced from 0.3 - too much for small data
+    deepsurv_batch_norm: bool = False  # Keep disabled
+    deepsurv_activation: str = 'ReLU'
+    deepsurv_l2_reg: float = 0.0001  # Reduced from 0.001 - less aggressive regularization
 
 
 
