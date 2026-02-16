@@ -336,6 +336,7 @@ class DeepSurv:
         # Use training event times if not specified
         if times is None:
             times = self.unique_times_
+            baseline_surv_at_times = self.baseline_survival_
         else:
             # Need to interpolate baseline survival to requested times
             from scipy.interpolate import interp1d
@@ -354,14 +355,8 @@ class DeepSurv:
         survival_functions = []
         
         for i in range(n_samples):
-            if times is None:
-                # Use original baseline times
-                surv_prob = np.power(self.baseline_survival_, np.exp(risk_scores[i]))
-                survival_functions.append((self.unique_times_.copy(), surv_prob))
-            else:
-                # Use interpolated baseline
-                surv_prob = np.power(baseline_surv_at_times, np.exp(risk_scores[i]))
-                survival_functions.append((times.copy(), surv_prob))
+            surv_prob = np.power(baseline_surv_at_times, np.exp(risk_scores[i]))
+            survival_functions.append((times.copy(), surv_prob))
         
         return survival_functions
     
