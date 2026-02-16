@@ -130,6 +130,9 @@ class FederatedDeepSurvClient(fl.client.Client):
             verbose=False  # Reduce output in federated setting
         )
 
+        # Clear optimizer state to reduce memory usage between rounds
+        self.model.reset_optimizer_state()
+
         # Extract updated weights
         parameters = self.get_parameters()
 

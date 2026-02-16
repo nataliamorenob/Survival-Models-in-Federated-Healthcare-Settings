@@ -281,6 +281,14 @@ class DeepSurv:
         # Baseline survival function S_0(t) = exp(-H_0(t))
         self.baseline_survival_ = np.exp(-cumulative_baseline_hazard)
     
+    def reset_optimizer_state(self):
+        """
+        Reset optimizer state to free memory.
+        Useful in federated learning between rounds.
+        """
+        self.optimizer.state = {}
+        self.logger.debug("Optimizer state cleared to free memory")
+    
     def predict_risk(self, X):
         """
         Predict risk scores for samples.
