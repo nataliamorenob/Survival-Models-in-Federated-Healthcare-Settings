@@ -199,6 +199,8 @@ class DeepSurv:
         
         # Training loop
         self.network.train()
+        print(f"[DeepSurv] Starting training for {self.epochs} epochs...")
+        
         for epoch in range(self.epochs):
             epoch_loss = 0
             n_batches = 0
@@ -221,8 +223,14 @@ class DeepSurv:
             
             avg_loss = epoch_loss / n_batches
             
+            # Log every 5 epochs to monitor training
+            if (epoch + 1) % 5 == 0 or epoch == 0:
+                print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
+            
             if verbose and (epoch + 1) % 10 == 0:
                 self.logger.info(f"Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
+        
+        print(f"[DeepSurv] Training finished. Final loss: {avg_loss:.4f}")
         
         # After training, estimate baseline hazard using Breslow estimator
         self._estimate_baseline_hazard(X, y)
@@ -242,12 +250,17 @@ class DeepSurv:
         # Get risk scores for training data
         risk_scores = self.predict_risk(X)
         
+        # DEBUG: Check risk score distribution
+        print(f"[DeepSurv] Risk scores - min: {risk_scores.min():.4f}, max: {risk_scores.max():.4f}, mean: {risk_scores.mean():.4f}, std: {risk_scores.std():.4f}")
+        
         # Extract times and events
         times = y['time'].astype(np.float32)
         events = y['event'].astype(bool)
         
         # Get unique event times (sorted)
         unique_times = np.unique(times[events])
+        
+        print(f"[DeepSurv] Baseline hazard estimation - {len(unique_times)} unique event times, {events.sum()} total events")
         
         if len(unique_times) == 0:
             self.logger.warning("No events in training data - cannot estimate baseline hazard")
