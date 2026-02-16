@@ -283,12 +283,12 @@ def main(config: Config):
     else:
         raise ValueError(f"Unknown training_mode: {config.training_mode}")
 
-    # Init RAY (federated only)
+    # Init RAY (federated only) - minimal memory footprint
     import ray
     import gc
     ray.init(
-        _memory=4 * 1024 * 1024 * 1024,  # 4GB per worker (increased from 2GB)
-        object_store_memory=2 * 1024 * 1024 * 1024,  # 2GB object store (increased from 512MB)
+        _memory=1 * 1024 * 1024 * 1024,  # 1GB per worker (reduced to fit 5 clients in 16GB)
+        object_store_memory=512 * 1024 * 1024,  # 512MB object store
         ignore_reinit_error=True,
         include_dashboard=False,
     )

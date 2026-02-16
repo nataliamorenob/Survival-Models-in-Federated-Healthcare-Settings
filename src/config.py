@@ -55,10 +55,10 @@ class Config:
     min_samples_leaf: int = 10
     #random_state: int = 42
 
-    # DEEPSURV PARAMETERS (optional, will use defaults if not specified):
-    deepsurv_hidden_layers: list = field(default_factory=lambda: [64, 32, 16])
+    # DEEPSURV PARAMETERS (reduced model size for memory efficiency):
+    deepsurv_hidden_layers: list = field(default_factory=lambda: [32, 16])  # Reduced from [64, 32, 16]
     deepsurv_dropout: float = 0.3
-    deepsurv_batch_norm: bool = True
+    deepsurv_batch_norm: bool = False  # Disable BatchNorm to save memory and avoid batch size issues
     deepsurv_activation: str = 'ReLU'  # Options: 'ReLU', 'Tanh', 'SELU', 'LeakyReLU'
     deepsurv_l2_reg: float = 0.001
 
