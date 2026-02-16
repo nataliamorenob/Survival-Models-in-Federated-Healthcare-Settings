@@ -195,6 +195,7 @@ class FederatedRSFClient(fl.client.Client):
         # TO CSV OF RANDOMNESS:
         # SAVE FINAL METRICS (ONE ROW PER CLIENT PER RUN) -->
         run_id = os.environ.get("RUN_ID", "unknown")
+        server_round = ins.config.get("server_round", "unknown")
 
         csv_path = os.environ.get(
             "OUTPUT_CSV",
@@ -211,6 +212,7 @@ class FederatedRSFClient(fl.client.Client):
             {
                 "timestamp": datetime.now().isoformat(),
                 "run_id": run_id,
+                "round": server_round,
                 "client_id": self.cid,
                 "c_index": metrics["C-index"],
                 "auc": metrics["AUC"],

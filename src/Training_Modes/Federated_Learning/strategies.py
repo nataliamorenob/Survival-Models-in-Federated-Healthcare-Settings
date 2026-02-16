@@ -73,6 +73,11 @@ class DeepSurvFedAvg(FedAvg):
             return None
         return super().evaluate(server_round, parameters)
 
+    def configure_evaluate(self, server_round, parameters, client_manager):
+        """Configure evaluation and pass round number to clients."""
+        config = {"server_round": server_round}
+        return super().configure_evaluate(server_round, parameters, client_manager)
+
     def aggregate_evaluate(self, server_round, results, failures):
         """Aggregate evaluation metrics and log per-client + aggregated results."""
         logger = logging.getLogger("main")

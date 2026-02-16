@@ -213,6 +213,7 @@ class FederatedDeepSurvClient(fl.client.Client):
 
         # Save metrics to CSV for randomness experiments
         run_id = os.environ.get("RUN_ID", "unknown")
+        server_round = ins.config.get("server_round", "unknown")
         csv_path = os.environ.get(
             "OUTPUT_CSV",
             os.path.join(
@@ -227,6 +228,7 @@ class FederatedDeepSurvClient(fl.client.Client):
             {
                 "timestamp": datetime.now().isoformat(),
                 "run_id": run_id,
+                "round": server_round,
                 "client_id": self.cid,
                 "c_index": metrics["C-index"],
                 "auc": metrics.get("AUC", float('nan')),
