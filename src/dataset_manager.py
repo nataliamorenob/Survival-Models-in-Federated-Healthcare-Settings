@@ -289,7 +289,7 @@ class DatasetManager:
 
             dataloaders[center] = {"train": df_train_stacked, "val": None, "test": df_test_stacked}
         
-        elif self.config.model.lower() == "rsf":
+        elif self.config.model.lower() in ["rsf", "deepsurv"]:
             
             # NO VAL SET (OLD):
             # # RSF always keeps original DataFrames

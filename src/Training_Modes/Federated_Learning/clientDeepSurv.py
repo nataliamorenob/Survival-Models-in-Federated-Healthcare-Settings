@@ -221,3 +221,7 @@ class FederatedDeepSurvClient(fl.client.Client):
             num_examples=len(self.X_test),
             metrics=metrics
         )
+
+    def to_client(self):
+        """Convert to Flower Client for simulation."""
+        return self
