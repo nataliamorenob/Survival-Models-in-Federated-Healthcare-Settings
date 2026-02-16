@@ -75,8 +75,26 @@ class DeepSurvFedAvg(FedAvg):
 
     def configure_evaluate(self, server_round, parameters, client_manager):
         """Configure evaluation and pass round number to clients."""
-        config = {"server_round": server_round}
-        return super().configure_evaluate(server_round, parameters, client_manager)
+        # Get the default evaluation configuration from parent
+        eval_config = super().configure_evaluate(server_round, parameters, client_manager)
+        
+        # Inject server_round into each client's config
+        if eval_config:
+            updated_config = []
+            for client, evaluate_ins in eval_config:
+                # Add server_round to the config
+                new_config = dict(evaluate_ins.config) if evaluate_ins.config else {}
+                new_config["server_round"] = server_round
+                
+                # Create new EvaluateIns with updated config
+                new_evaluate_ins = fl.common.EvaluateIns(
+                    parameters=evaluate_ins.parameters,
+                    config=new_config
+                )
+                updated_config.append((client, new_evaluate_ins))
+            return updated_config
+        
+        return eval_config
 
     def aggregate_evaluate(self, server_round, results, failures):
         """Aggregate evaluation metrics and log per-client + aggregated results."""
