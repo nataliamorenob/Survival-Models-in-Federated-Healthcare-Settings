@@ -12,7 +12,7 @@ Reference: Local risk set approximation with FedAvg aggregation.
 import flwr as fl
 import numpy as np
 import torch
-from flwr.common import FitRes, EvaluateRes, Parameters, Status, Code, NDArrays
+from flwr.common import FitRes, EvaluateRes, GetParametersRes, Parameters, Status, Code, NDArrays
 from utils import evaluate_deepsurv
 import os
 from datetime import datetime
@@ -58,17 +58,29 @@ class FederatedDeepSurvClient(fl.client.Client):
         self.X_test = data["X_test"]
         self.y_test = data["y_test"]
 
-    def get_parameters(self, config=None) -> NDArrays:
+    def get_parameters(self, ins=None):
         """
-        Extract model weights as numpy arrays.
+        Extract model weights and return as GetParametersRes.
         
         Returns:
-            List of numpy arrays representing model parameters
+            GetParametersRes with serialized parameters
         """
-        return [
+        # Extract weights as numpy arrays
+        parameters = [
             param.cpu().detach().numpy() 
             for param in self.model.network.state_dict().values()
         ]
+        
+        # Convert to bytes for transmission
+        tensors = [param.tobytes() for param in parameters]
+        
+        return GetParametersRes(
+            status=Status(Code.OK, message="OK"),
+            parameters=Parameters(
+                tensors=tensors,
+                tensor_type="numpy"
+            )
+        )
 
     def set_parameters(self, parameters: NDArrays) -> None:
         """
