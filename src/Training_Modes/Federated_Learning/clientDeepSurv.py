@@ -65,18 +65,17 @@ class FederatedDeepSurvClient(fl.client.Client):
         Returns:
             GetParametersRes with serialized parameters
         """
+        from flwr.common import ndarrays_to_parameters
+        
         # Extract weights as numpy arrays
         parameters = self._get_parameters_as_arrays()
         
-        # Convert to bytes for transmission
-        tensors = [param.tobytes() for param in parameters]
+        # Convert to Flower's standard format
+        parameters_proto = ndarrays_to_parameters(parameters)
         
         return GetParametersRes(
             status=Status(Code.OK, message="OK"),
-            parameters=Parameters(
-                tensors=tensors,
-                tensor_type="numpy"
-            )
+            parameters=parameters_proto
         )
 
     def _get_parameters_as_arrays(self):
@@ -108,11 +107,11 @@ class FederatedDeepSurvClient(fl.client.Client):
 
         # Set global weights if provided
         if ins.parameters.tensors:
-            # Server sent global weights - load them
-            parameters = [
-                np.frombuffer(tensor, dtype=np.float32) 
-                for tensor in ins.parameters.tensors
-            ]
+            from flwr.common import parameters_to_ndarrays
+            
+            # Server sent global weights - load them using Flower's standard format
+            parameters = parameters_to_ndarrays(ins.parameters)
+            
             # Reshape parameters to match model architecture
             param_idx = 0
             state_dict = self.model.network.state_dict()
@@ -140,19 +139,18 @@ class FederatedDeepSurvClient(fl.client.Client):
         self.model.reset_optimizer_state()
 
         # Extract updated weights as numpy arrays
+        from flwr.common import ndarrays_to_parameters
+        
         parameters = self._get_parameters_as_arrays()
 
-        # Convert to bytes for transmission
-        tensors = [param.tobytes() for param in parameters]
+        # Convert to Flower's standard format
+        parameters_proto = ndarrays_to_parameters(parameters)
 
         print(f"[Client {self.cid}] Local training completed")
 
         return FitRes(
             status=Status(Code.OK, message="OK"),
-            parameters=Parameters(
-                tensors=tensors,
-                tensor_type="numpy"
-            ),
+            parameters=parameters_proto,
             num_examples=len(self.X_train),
             metrics={"client_id": self.cid}
         )
@@ -171,10 +169,11 @@ class FederatedDeepSurvClient(fl.client.Client):
 
         # Load global weights sent by server
         if ins.parameters.tensors:
-            parameters = [
-                np.frombuffer(tensor, dtype=np.float32) 
-                for tensor in ins.parameters.tensors
-            ]
+            from flwr.common import parameters_to_ndarrays
+            
+            # Deserialize using Flower's standard format
+            parameters = parameters_to_ndarrays(ins.parameters)
+            
             # Reshape parameters to match model architecture
             param_idx = 0
             state_dict = self.model.network.state_dict()

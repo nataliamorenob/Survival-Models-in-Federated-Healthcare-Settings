@@ -13,56 +13,10 @@ class DeepSurvFedAvg(FedAvg):
     
     Uses standard federated averaging for neural network weights.
     Each client trains locally using local risk sets (biased approximation).
+    
+    NOTE: We use the parent class's aggregate_fit() which handles parameter
+    aggregation correctly using Flower's standard format.
     """
-
-    def aggregate_fit(self, server_round, results, failures):
-        """
-        Aggregate DeepSurv model weights from clients.
-        
-        Standard FedAvg: w_global = Σ(n_k/n_total * w_k)
-        """
-        if not results:
-            return None, {}
-
-        logger = logging.getLogger("main")
-        logger.info(f"[Server] Round {server_round}: Aggregating DeepSurv weights from {len(results)} clients")
-
-        # Extract weights and sample sizes
-        weights_list = []
-        num_examples_list = []
-
-        for client_proxy, fit_res in results:
-            # Convert bytes back to numpy arrays
-            tensors = fit_res.parameters.tensors
-            weights = [np.frombuffer(t, dtype=np.float32) for t in tensors]
-            weights_list.append(weights)
-            num_examples_list.append(fit_res.num_examples)
-
-        # Compute weighted average
-        total_examples = sum(num_examples_list)
-        aggregated_weights = []
-
-        for i in range(len(weights_list[0])):
-            layer_weights = [
-                weights[i] * (num_examples_list[j] / total_examples)
-                for j, weights in enumerate(weights_list)
-            ]
-            aggregated_weights.append(np.sum(layer_weights, axis=0))
-
-        # Convert back to bytes
-        aggregated_tensors = [w.tobytes() for w in aggregated_weights]
-
-        logger.info(
-            f"[Server] Round {server_round}: aggregated {len(aggregated_weights)} weight tensors"
-        )
-
-        return (
-            fl.common.Parameters(
-                tensors=aggregated_tensors,
-                tensor_type="numpy"
-            ),
-            {}
-        )
 
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""
