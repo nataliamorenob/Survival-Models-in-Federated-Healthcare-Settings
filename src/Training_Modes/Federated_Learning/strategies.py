@@ -194,7 +194,26 @@ class DeepSurvFedAdam(FedAdam):
     NOTE: We don't override aggregate_fit() because FedAdam's parent class
     implements the Adam optimization logic. Overriding it would bypass
     the adaptive optimization and turn it into FedAvg.
+    
+    Hyperparameters tuned for survival analysis with small, heterogeneous data:
+    - eta: 1e-4 (lower server learning rate to prevent collapse)
+    - beta_1: 0.7 (reduced momentum for stability)
+    - beta_2: 0.99 (keep adaptive learning rate)
+    - tau: 1e-3 (small regularization)
     """
+    
+    def __init__(self, *args, **kwargs):
+        # Set conservative hyperparameters for survival analysis
+        kwargs.setdefault('eta', 1e-4)  # Server learning rate (default: 1e-1)
+        kwargs.setdefault('beta_1', 0.7)  # First moment coefficient (default: 0.9)
+        kwargs.setdefault('beta_2', 0.99)  # Second moment coefficient (default: 0.99)
+        kwargs.setdefault('tau', 1e-3)  # Regularization term (default: 1e-9)
+        super().__init__(*args, **kwargs)
+        
+        logger = logging.getLogger("main")
+        logger.info(f"[FedAdam] Initialized with eta={kwargs.get('eta')}, "
+                   f"beta_1={kwargs.get('beta_1')}, beta_2={kwargs.get('beta_2')}, "
+                   f"tau={kwargs.get('tau')}")
 
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""
