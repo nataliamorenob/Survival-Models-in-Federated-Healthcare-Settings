@@ -107,7 +107,18 @@ class DeepSurvFedProx(FedProx):
     
     WARNING: Currently, the proximal term is NOT implemented in the client.
     This means FedProx is currently behaving exactly like FedAvg.
+    
+    Hyperparameters:
+    - proximal_mu: Coefficient for the proximal term (default: 0.01)
     """
+    
+    def __init__(self, *args, **kwargs):
+        # Set default proximal_mu if not provided
+        kwargs.setdefault('proximal_mu', 0.01)
+        super().__init__(*args, **kwargs)
+        
+        logger = logging.getLogger("main")
+        logger.info(f"[FedProx] Initialized with proximal_mu={kwargs.get('proximal_mu')}")
 
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""
