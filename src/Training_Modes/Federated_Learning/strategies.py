@@ -145,56 +145,15 @@ class DeepSurvFedProx(FedProx):
     
     Adds a proximal term to the local objective to limit client drift.
     Useful for heterogeneous (non-IID) data distributions.
+    
+    NOTE: FedProx uses standard FedAvg aggregation on the server side.
+    The difference is in the client-side training where a proximal term
+    is added to the loss function. We don't override aggregate_fit() 
+    because the parent class already implements FedAvg aggregation correctly.
+    
+    WARNING: Currently, the proximal term is NOT implemented in the client.
+    This means FedProx is currently behaving exactly like FedAvg.
     """
-
-    def aggregate_fit(self, server_round, results, failures):
-        """
-        Aggregate DeepSurv model weights from clients (same as FedAvg).
-        
-        Standard FedAvg: w_global = Σ(n_k/n_total * w_k)
-        """
-        if not results:
-            return None, {}
-
-        logger = logging.getLogger("main")
-        logger.info(f"[Server] Round {server_round}: Aggregating DeepSurv weights from {len(results)} clients (FedProx)")
-
-        # Extract weights and sample sizes
-        weights_list = []
-        num_examples_list = []
-
-        for client_proxy, fit_res in results:
-            # Convert bytes back to numpy arrays
-            tensors = fit_res.parameters.tensors
-            weights = [np.frombuffer(t, dtype=np.float32) for t in tensors]
-            weights_list.append(weights)
-            num_examples_list.append(fit_res.num_examples)
-
-        # Compute weighted average
-        total_examples = sum(num_examples_list)
-        aggregated_weights = []
-
-        for i in range(len(weights_list[0])):
-            layer_weights = [
-                weights[i] * (num_examples_list[j] / total_examples)
-                for j, weights in enumerate(weights_list)
-            ]
-            aggregated_weights.append(np.sum(layer_weights, axis=0))
-
-        # Convert back to bytes
-        aggregated_tensors = [w.tobytes() for w in aggregated_weights]
-
-        logger.info(
-            f"[Server] Round {server_round}: aggregated {len(aggregated_weights)} weight tensors"
-        )
-
-        return (
-            fl.common.Parameters(
-                tensors=aggregated_tensors,
-                tensor_type="numpy"
-            ),
-            {}
-        )
 
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""
@@ -277,56 +236,11 @@ class DeepSurvFedAdam(FedAdam):
     
     Uses Adam optimizer on the server for faster convergence.
     Better suited for non-IID data compared to FedAvg.
+    
+    NOTE: We don't override aggregate_fit() because FedAdam's parent class
+    implements the Adam optimization logic. Overriding it would bypass
+    the adaptive optimization and turn it into FedAvg.
     """
-
-    def aggregate_fit(self, server_round, results, failures):
-        """
-        Aggregate DeepSurv model weights from clients using Adam.
-        
-        FedAdam uses adaptive learning rates at the server level.
-        """
-        if not results:
-            return None, {}
-
-        logger = logging.getLogger("main")
-        logger.info(f"[Server] Round {server_round}: Aggregating DeepSurv weights from {len(results)} clients (FedAdam)")
-
-        # Extract weights and sample sizes
-        weights_list = []
-        num_examples_list = []
-
-        for client_proxy, fit_res in results:
-            # Convert bytes back to numpy arrays
-            tensors = fit_res.parameters.tensors
-            weights = [np.frombuffer(t, dtype=np.float32) for t in tensors]
-            weights_list.append(weights)
-            num_examples_list.append(fit_res.num_examples)
-
-        # Compute weighted average
-        total_examples = sum(num_examples_list)
-        aggregated_weights = []
-
-        for i in range(len(weights_list[0])):
-            layer_weights = [
-                weights[i] * (num_examples_list[j] / total_examples)
-                for j, weights in enumerate(weights_list)
-            ]
-            aggregated_weights.append(np.sum(layer_weights, axis=0))
-
-        # Convert back to bytes
-        aggregated_tensors = [w.tobytes() for w in aggregated_weights]
-
-        logger.info(
-            f"[Server] Round {server_round}: aggregated {len(aggregated_weights)} weight tensors"
-        )
-
-        return (
-            fl.common.Parameters(
-                tensors=aggregated_tensors,
-                tensor_type="numpy"
-            ),
-            {}
-        )
 
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""
