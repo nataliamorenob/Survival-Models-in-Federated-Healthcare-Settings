@@ -1128,8 +1128,13 @@ def get_strategy(strategy_name: str, **kwargs):
     logger = logging.getLogger("main")
     logger.info(f"[Strategy] Selected strategy: {strategy_name}")
 
-    # Ensure 'initial_parameters' is included in kwargs
-    if 'initial_parameters' not in kwargs:
-        raise ValueError("Missing required argument: 'initial_parameters'")
+    # Strategies that require initial_parameters (adaptive optimizers)
+    strategies_requiring_initial_params = ["FedAdam", "FedAdagrad", "FedYogi"]
+    
+    if strategy_name in strategies_requiring_initial_params and 'initial_parameters' not in kwargs:
+        raise ValueError(
+            f"Strategy '{strategy_name}' requires 'initial_parameters' argument. "
+            f"Please provide initial model parameters when creating the strategy."
+        )
 
     return strategies[strategy_name](**kwargs)

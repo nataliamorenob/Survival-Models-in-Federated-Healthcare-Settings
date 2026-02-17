@@ -383,6 +383,23 @@ def main(config: Config):
     if config.model == "DeepSurv":
         # Select FL strategy for DeepSurv based on config.strategy
         from Training_Modes.Federated_Learning.strategies import get_strategy
+        from flwr.common import ndarrays_to_parameters
+        
+        # Create initial model to get initial parameters for the strategy
+        logger.info("[Global] Initializing model to get initial parameters for strategy")
+        model_manager = ModelManager(config, client_id=0)
+        model_manager.initialize_model()
+        initial_model = model_manager.get_model()
+        
+        # Extract initial parameters as numpy arrays
+        initial_params = [
+            param.cpu().detach().numpy() 
+            for param in initial_model.network.state_dict().values()
+        ]
+        
+        # Convert to Flower Parameters format
+        initial_parameters = ndarrays_to_parameters(initial_params)
+        
         logger.info(f"[Global] Using {config.strategy} strategy for DeepSurv")
         strategy = get_strategy(
             config.strategy,
@@ -391,6 +408,7 @@ def main(config: Config):
             min_fit_clients=config.num_clients,
             min_evaluate_clients=config.num_clients,
             min_available_clients=config.num_clients,
+            initial_parameters=initial_parameters,
         )
     elif config.strategy == "FedSurvForest":
         logger.info("[Global] Using FedSurvForest strategy")
