@@ -1128,4 +1128,8 @@ def get_strategy(strategy_name: str, **kwargs):
     logger = logging.getLogger("main")
     logger.info(f"[Strategy] Selected strategy: {strategy_name}")
 
+    # Ensure 'initial_parameters' is included in kwargs
+    if 'initial_parameters' not in kwargs:
+        raise ValueError("Missing required argument: 'initial_parameters'")
+
     return strategies[strategy_name](**kwargs)
