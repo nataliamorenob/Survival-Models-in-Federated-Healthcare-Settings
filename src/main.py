@@ -381,8 +381,11 @@ def main(config: Config):
     # 4. Build Strategy
     # =====================================================================
     if config.model == "DeepSurv":
-        logger.info("[Global] Using DeepSurvFedAvg strategy (local risk set approximation)")
-        strategy = DeepSurvFedAvg(
+        # Select FL strategy for DeepSurv based on config.strategy
+        from Training_Modes.Federated_Learning.strategies import get_strategy
+        logger.info(f"[Global] Using {config.strategy} strategy for DeepSurv")
+        strategy = get_strategy(
+            config.strategy,
             fraction_fit=1.0,
             fraction_evaluate=1.0,
             min_fit_clients=config.num_clients,
@@ -433,8 +436,9 @@ if __name__ == "__main__":
         training_mode="federated",
         num_clients=5,
         num_rounds=10,
-        num_epochs=20,  # Local epochs per round
-        eval_grid_mode="global"
+        num_epochs=50,  # Local epochs per round
+        eval_grid_mode="global",
+        strategy="FedAvg"  # FedAdam, FedProx and FedAvg available for DeepSurv
     )
 
     # FEDERATED RSF TRAINING:

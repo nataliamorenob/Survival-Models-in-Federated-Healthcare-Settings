@@ -23,7 +23,7 @@ class Config:
 
     # Federated Learning parameters:
     num_clients: int = 3  # Number of participating centers/clients (max 6) - has to be the same  as the length of centers list
-    strategy: str = "FedAvg"
+    strategy: str = "FedAvg"  # Options: "FedAvg", "FedProx", "FedAdam", "FedSurvForest", etc. Used for DeepSurv and RSF federated strategies.
     num_rounds: int = 2
     num_epochs: int = 2
     batch_size: int = 16  # Increased from 8 - better for small datasets with dropout
