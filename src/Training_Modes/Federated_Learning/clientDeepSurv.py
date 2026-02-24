@@ -133,14 +133,14 @@ class FederatedDeepSurvClient(fl.client.Client):
         
         self.current_round += 1
         
-        # Save client logs in the same directory as the main federated log
-        # Check if config has log_dir, otherwise use default
-        if hasattr(self.config, 'log_dir'):
-            log_dir = os.path.join(self.config.log_dir, "client_logs")
-        else:
-            log_dir = "/scratch/project_2015651/Masters_thesis/logs/client_logs"
+        # Save client logs in experiment directory (same as experiment_{id}.log)
+        log_dir = os.path.join(self.config.experiment_dir, "client_logs")
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, f"client_{self.cid}_training.log")
+        
+        # Print location on first round
+        if self.current_round == 1:
+            print(f"[Client {self.cid}] Client logs directory: {log_dir}")
         
         # Add round separator to log file
         with open(log_file, 'a') as f:
