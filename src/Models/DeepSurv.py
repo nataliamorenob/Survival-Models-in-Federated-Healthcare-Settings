@@ -303,31 +303,37 @@ class DeepSurv:
                 else:
                     patience_counter += 1
                 
-                # Log every 5 epochs
-                if (epoch + 1) % 5 == 0 or epoch == 0:
-                    print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+                # Log every epoch with both train and val loss
+                if verbose:
+                    print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+                    if (epoch + 1) % 10 == 0:
+                        self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
                 
                 # Early stopping
                 if patience_counter >= patience:
-                    print(f"[DeepSurv] Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1}, Best val loss: {best_val_loss:.4f}")
+                    print(f"[DeepSurv] Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}")
+                    if verbose:
+                        self.logger.info(f"Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}")
                     # Restore best model
                     self.network.load_state_dict({k: v.to(self.device) for k, v in best_state_dict.items()})
                     break
             else:
                 # No validation - just log training loss
-                if (epoch + 1) % 5 == 0 or epoch == 0:
-                    print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
-            
-            if verbose and (epoch + 1) % 10 == 0:
-                if val_dataloader is not None:
-                    self.logger.info(f"Epoch {epoch+1}/{self.epochs}, Train Loss: {avg_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
-                else:
-                    self.logger.info(f"Epoch {epoch+1}/{self.epochs}, Loss: {avg_loss:.4f}")
+                if verbose and (epoch + 1) % 5 == 0:
+                    print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f}")
+                    if (epoch + 1) % 10 == 0:
+                        self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f}")
         
         if val_dataloader is not None and best_state_dict is not None:
-            print(f"[DeepSurv] Training finished. Best epoch: {best_epoch+1}, Best val loss: {best_val_loss:.4f}")
+            msg = f"[DeepSurv] Training finished. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}"
+            print(msg)
+            if verbose:
+                self.logger.info(msg)
         else:
-            print(f"[DeepSurv] Training finished. Final loss: {avg_loss:.4f}")
+            msg = f"[DeepSurv] Training finished. Final train loss: {avg_loss:.4f}"
+            print(msg)
+            if verbose:
+                self.logger.info(msg)
         
         # After training, estimate baseline hazard using Breslow estimator
         self._estimate_baseline_hazard(X, y)
