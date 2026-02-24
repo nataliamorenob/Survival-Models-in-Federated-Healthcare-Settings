@@ -458,10 +458,10 @@ if __name__ == "__main__":
         centers=[0, 1, 2, 3, 4],
         training_mode="federated",
         num_clients=5,
-        num_rounds=10,
+        num_rounds=20,
         num_epochs=50,  # Local epochs per round
         eval_grid_mode="global",
-        strategy="FedAvg"  # FedAdam, FedProx and FedAvg available for DeepSurv
+        strategy="FedProx"  # FedAdam, FedProx and FedAvg available for DeepSurv
     )
 
     # FEDERATED RSF TRAINING:

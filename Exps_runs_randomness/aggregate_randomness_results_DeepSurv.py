@@ -5,6 +5,7 @@ from pathlib import Path
 # CONFIG
 # ---------------------------------------------------------
 RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps")
+#RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/Federated/DeepSurv/3cl/30rounds_3cl_FedProx")
 N_RUNS = 6
 
 OUTPUT_CLIENT_CSV = RESULTS_DIR / "summary_per_client_mean_std_round10.csv"
@@ -26,9 +27,9 @@ df_all = pd.concat(dfs, ignore_index=True)
 print("Loaded rows (all rounds):", len(df_all))
 
 # ---------------------------------------------------------
-# 🔥 FILTER ONLY ROUND 10
+# FILTER ONLY ROUND 10
 # ---------------------------------------------------------
-df_all = df_all[df_all["round"] == 10]
+df_all = df_all[df_all["round"] == 20]
 
 print("Rows after filtering round == 10:", len(df_all))
 print(df_all.head(), "\n")
