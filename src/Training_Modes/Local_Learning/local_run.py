@@ -96,8 +96,16 @@ def run_local(config):
 		return metrics
 
 	if config.model.lower() == "deepsurv":
-		logger.info(f"[Local] Training DeepSurv for {config.num_epochs} epochs")
-		model.fit(data["X_train"], data["y_train"], verbose=True)
+		logger.info(f"[Local] Training DeepSurv for {config.num_epochs} epochs with validation")
+		
+		# Train with validation data for early stopping
+		model.fit(
+			data["X_train"], 
+			data["y_train"],
+			X_val=data["X_val"],
+			y_val=data["y_val"],
+			verbose=True
+		)
 		logger.info(f"[Local] DeepSurv training completed")
 
 		metrics = evaluate_deepsurv(

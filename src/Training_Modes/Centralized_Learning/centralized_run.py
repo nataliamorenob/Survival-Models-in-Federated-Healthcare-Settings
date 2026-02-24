@@ -166,8 +166,16 @@ def run_centralized(config):
 		return metrics_summary
 
 	if config.model.lower() == "deepsurv":
-		logger.info(f"[Centralized] Training DeepSurv for {config.num_epochs} epochs")
-		model.fit(global_data["X_train"], global_data["y_train"], verbose=True)
+		logger.info(f"[Centralized] Training DeepSurv for {config.num_epochs} epochs with validation")
+		
+		# Train with validation data for early stopping
+		model.fit(
+			global_data["X_train"], 
+			global_data["y_train"],
+			X_val=global_data["X_val"],
+			y_val=global_data["y_val"],
+			verbose=True
+		)
 		logger.info(f"[Centralized] DeepSurv training completed")
 
 		metrics_summary["global"] = evaluate_deepsurv(

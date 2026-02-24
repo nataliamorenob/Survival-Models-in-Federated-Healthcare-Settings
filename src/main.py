@@ -270,7 +270,7 @@ def main(config: Config):
         logger.info("Federated training mode selected.")
     elif config.training_mode == "centralized":
         logger.info("Centralized training mode selected.")
-        run_centralized(config)
+        run_centralized_RSF(config)
         return
     elif config.training_mode == "local":
         logger.info("Local training mode selected.")
@@ -278,7 +278,7 @@ def main(config: Config):
             raise ValueError(
                 f"Local mode requires num_clients=1, got {config.num_clients}"
             )
-        run_local(config)
+        run_local_RSF(config)
         return
     else:
         raise ValueError(f"Unknown training_mode: {config.training_mode}")

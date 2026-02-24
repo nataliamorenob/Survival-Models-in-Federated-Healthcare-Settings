@@ -314,15 +314,15 @@ class DatasetManager:
 
             # Extract features
             feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
-            X_train = df_train[feature_cols].values
+            X_train = df_train_split[feature_cols].values
             X_val   = df_val[feature_cols].values
             X_test = df_test[feature_cols].values
 
             # Build structured survival arrays
             from sksurv.util import Surv
             y_train = Surv.from_arrays(
-                event=df_train["event"].astype(bool),
-                time=df_train["time"].astype(float)
+                event=df_train_split["event"].astype(bool),
+                time=df_train_split["time"].astype(float)
             )
 
             y_val = Surv.from_arrays(
@@ -467,18 +467,18 @@ class DatasetManager:
 
         #     return {"train": df_train_stacked, "val": None, "test": df_test_stacked}
 
-        if self.config.model.lower() == "rsf":
+        if self.config.model.lower() in ["rsf", "deepsurv"]:
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
 
             feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
-            X_train = df_train[feature_cols].values
+            X_train = df_train_split[feature_cols].values
             X_val = df_val[feature_cols].values
             X_test = df_test[feature_cols].values
 
             from sksurv.util import Surv
             y_train = Surv.from_arrays(
-                event=df_train["event"].astype(bool),
-                time=df_train["time"].astype(float),
+                event=df_train_split["event"].astype(bool),
+                time=df_train_split["time"].astype(float),
             )
             y_val = Surv.from_arrays(
                 event=df_val["event"].astype(bool),
@@ -579,8 +579,8 @@ class DatasetManager:
         #         "per_center": per_center,
         #     }
 
-        # Random Survival Forest (RSF) model
-        if self.config.model.lower() == "rsf":
+        # Random Survival Forest (RSF) and DeepSurv models
+        if self.config.model.lower() in ["rsf", "deepsurv"]:
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center=0)
 
             self.log_and_print(
@@ -597,14 +597,14 @@ class DatasetManager:
             }
 
             feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
-            X_train = df_train[feature_cols].values
+            X_train = df_train_split[feature_cols].values
             X_val = df_val[feature_cols].values
             X_test = df_test[feature_cols].values
 
             from sksurv.util import Surv
             y_train = Surv.from_arrays(
-                event=df_train["event"].astype(bool),
-                time=df_train["time"].astype(float),
+                event=df_train_split["event"].astype(bool),
+                time=df_train_split["time"].astype(float),
             )
             y_val = Surv.from_arrays(
                 event=df_val["event"].astype(bool),
