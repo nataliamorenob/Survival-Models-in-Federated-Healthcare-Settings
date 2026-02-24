@@ -18,6 +18,29 @@ class DeepSurvFedAvg(FedAvg):
     aggregation correctly using Flower's standard format.
     """
 
+    def configure_fit(self, server_round, parameters, client_manager):
+        """Configure training and pass round number to clients."""
+        # Get the default fit configuration from parent
+        fit_config = super().configure_fit(server_round, parameters, client_manager)
+        
+        # Inject server_round into each client's config
+        if fit_config:
+            updated_config = []
+            for client, fit_ins in fit_config:
+                # Add server_round to the config
+                new_config = dict(fit_ins.config) if fit_ins.config else {}
+                new_config["server_round"] = server_round
+                
+                # Create new FitIns with updated config
+                new_fit_ins = fl.common.FitIns(
+                    parameters=fit_ins.parameters,
+                    config=new_config
+                )
+                updated_config.append((client, new_fit_ins))
+            return updated_config
+        
+        return fit_config
+
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""
         if server_round == 0:
@@ -119,6 +142,29 @@ class DeepSurvFedProx(FedProx):
         
         logger = logging.getLogger("main")
         logger.info(f"[FedProx] Initialized with proximal_mu={kwargs.get('proximal_mu')}")
+
+    def configure_fit(self, server_round, parameters, client_manager):
+        """Configure training and pass round number to clients."""
+        # Get the default fit configuration from parent
+        fit_config = super().configure_fit(server_round, parameters, client_manager)
+        
+        # Inject server_round into each client's config
+        if fit_config:
+            updated_config = []
+            for client, fit_ins in fit_config:
+                # Add server_round to the config
+                new_config = dict(fit_ins.config) if fit_ins.config else {}
+                new_config["server_round"] = server_round
+                
+                # Create new FitIns with updated config
+                new_fit_ins = fl.common.FitIns(
+                    parameters=fit_ins.parameters,
+                    config=new_config
+                )
+                updated_config.append((client, new_fit_ins))
+            return updated_config
+        
+        return fit_config
 
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""
@@ -225,6 +271,29 @@ class DeepSurvFedAdam(FedAdam):
         logger.info(f"[FedAdam] Initialized with eta={kwargs.get('eta')}, "
                    f"beta_1={kwargs.get('beta_1')}, beta_2={kwargs.get('beta_2')}, "
                    f"tau={kwargs.get('tau')}")
+
+    def configure_fit(self, server_round, parameters, client_manager):
+        """Configure training and pass round number to clients."""
+        # Get the default fit configuration from parent
+        fit_config = super().configure_fit(server_round, parameters, client_manager)
+        
+        # Inject server_round into each client's config
+        if fit_config:
+            updated_config = []
+            for client, fit_ins in fit_config:
+                # Add server_round to the config
+                new_config = dict(fit_ins.config) if fit_ins.config else {}
+                new_config["server_round"] = server_round
+                
+                # Create new FitIns with updated config
+                new_fit_ins = fl.common.FitIns(
+                    parameters=fit_ins.parameters,
+                    config=new_config
+                )
+                updated_config.append((client, new_fit_ins))
+            return updated_config
+        
+        return fit_config
 
     def evaluate(self, server_round, parameters, config=None):
         """Skip evaluation on round 0; use parent behavior otherwise."""

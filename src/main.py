@@ -252,8 +252,9 @@ def init_logging(config):
 
 def main(config: Config):
     # Random seeds to test randomness
+    # Using prime number multiplier to avoid pathological seeds like 1237
     run_id = int(os.environ.get("RUN_ID", 0))
-    seed = 1234 + run_id
+    seed = 10000 + (run_id * 13)
 
     config.random_state = seed
 
