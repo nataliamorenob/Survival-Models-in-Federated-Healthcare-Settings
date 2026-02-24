@@ -46,6 +46,7 @@ class FederatedDeepSurvClient(fl.client.Client):
         self.name = name
         self.model = model
         self.config = config
+        self.current_round = 0  # Track federated round number
 
         # Extract data for this center
         center = list(dataloaders.keys())[0]
@@ -128,9 +129,21 @@ class FederatedDeepSurvClient(fl.client.Client):
         # Train locally using LOCAL risk sets with validation for early stopping
         # NOTE: This is the biased approximation - risk sets only contain local patients
         import os
+        from datetime import datetime
+        
+        self.current_round += 1
+        
         log_dir = "src/results/federated_logs"
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, f"client_{self.cid}_training.log")
+        
+        # Add round separator to log file
+        with open(log_file, 'a') as f:
+            f.write(f"\n{'='*80}\n")
+            f.write(f"FEDERATED ROUND {self.current_round} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"{'='*80}\n")
+        
+        print(f"[Client {self.cid}] === Round {self.current_round} ===")
         
         self.model.fit(
             self.X_train, 
