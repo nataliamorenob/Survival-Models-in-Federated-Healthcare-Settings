@@ -132,7 +132,7 @@ class FederatedDeepSurvClient(fl.client.Client):
             self.y_train,
             X_val=self.X_val,
             y_val=self.y_val,
-            verbose=False  # Reduce output in federated setting
+            verbose=True  # Show training/validation loss per epoch
         )
 
         # Clear optimizer state to reduce memory usage between rounds
