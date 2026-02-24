@@ -182,7 +182,7 @@ class DeepSurv:
         
         self.logger = logging.getLogger("main")
         
-    def fit(self, X, y, X_val=None, y_val=None, verbose=True):
+    def fit(self, X, y, X_val=None, y_val=None, verbose=True, client_id=None):
         """
         Fit the DeepSurv model.
         
@@ -192,6 +192,7 @@ class DeepSurv:
             X_val: Optional validation features
             y_val: Optional validation labels
             verbose: Whether to print training progress
+            client_id: Optional client identifier for federated learning (added to log prefix)
         """
         # Convert structured array to separate arrays
         if isinstance(y, np.ndarray) and y.dtype.names:
@@ -305,13 +306,15 @@ class DeepSurv:
                 
                 # Log every epoch with both train and val loss
                 if verbose:
-                    print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+                    prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"
+                    print(f"{prefix} Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
                     if (epoch + 1) % 10 == 0:
                         self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
                 
                 # Early stopping
                 if patience_counter >= patience:
-                    print(f"[DeepSurv] Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}")
+                    prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"
+                    print(f"{prefix} Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}")
                     if verbose:
                         self.logger.info(f"Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}")
                     # Restore best model
@@ -320,12 +323,14 @@ class DeepSurv:
             else:
                 # No validation - just log training loss
                 if verbose and (epoch + 1) % 5 == 0:
-                    print(f"[DeepSurv] Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f}")
+                    prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"
+                    print(f"{prefix} Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f}")
                     if (epoch + 1) % 10 == 0:
                         self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f}")
         
         if val_dataloader is not None and best_state_dict is not None:
-            msg = f"[DeepSurv] Training finished. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}"
+            prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"
+            msg = f"{prefix} Training finished. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}"
             print(msg)
             if verbose:
                 self.logger.info(msg)
