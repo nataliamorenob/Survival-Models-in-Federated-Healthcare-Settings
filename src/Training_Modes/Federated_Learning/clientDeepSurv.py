@@ -46,7 +46,6 @@ class FederatedDeepSurvClient(fl.client.Client):
         self.name = name
         self.model = model
         self.config = config
-        self.current_round = 0  # Track federated round number
 
         # Extract data for this center
         center = list(dataloaders.keys())[0]
@@ -131,24 +130,26 @@ class FederatedDeepSurvClient(fl.client.Client):
         import os
         from datetime import datetime
         
-        self.current_round += 1
+        # Get run ID and round number
+        run_id = os.environ.get("RUN_ID", "unknown")
+        server_round = ins.config.get("server_round", "unknown")
         
         # Save client logs in experiment directory (same as experiment_{id}.log)
         log_dir = os.path.join(self.config.experiment_dir, "client_logs")
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, f"client_{self.cid}_training.log")
         
-        # Print location on first round
-        if self.current_round == 1:
+        # Print location on first round of first run
+        if server_round == 1 and run_id == "1":
             print(f"[Client {self.cid}] Client logs directory: {log_dir}")
         
         # Add round separator to log file
         with open(log_file, 'a') as f:
             f.write(f"\n{'='*80}\n")
-            f.write(f"FEDERATED ROUND {self.current_round} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"RUN {run_id} - ROUND {server_round} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"{'='*80}\n")
         
-        print(f"[Client {self.cid}] === Round {self.current_round} ===")
+        print(f"[Client {self.cid}] === Run {run_id} - Round {server_round} ===")
         
         self.model.fit(
             self.X_train, 
