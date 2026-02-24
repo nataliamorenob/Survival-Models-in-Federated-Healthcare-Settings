@@ -286,7 +286,6 @@ def main(config: Config):
     # Init RAY (federated only) - minimal memory footprint
     import ray
     import gc
-    import os
     
     # Disable Ray's colored output for cleaner logs
     os.environ["RAY_COLOR_PREFIX"] = "0"
