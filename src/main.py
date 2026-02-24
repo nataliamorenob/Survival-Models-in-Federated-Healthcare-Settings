@@ -286,11 +286,17 @@ def main(config: Config):
     # Init RAY (federated only) - minimal memory footprint
     import ray
     import gc
+    import os
+    
+    # Disable Ray's colored output for cleaner logs
+    os.environ["RAY_COLOR_PREFIX"] = "0"
+    
     ray.init(
         _memory=1 * 1024 * 1024 * 1024,  # 1GB per worker (reduced to fit 5 clients in 16GB)
         object_store_memory=512 * 1024 * 1024,  # 512MB object store
         ignore_reinit_error=True,
         include_dashboard=False,
+        logging_level="ERROR",  # Reduce Ray's verbose logging
     )
 
     # Build eval_times_per_client by loading metadata only (no full preload)
