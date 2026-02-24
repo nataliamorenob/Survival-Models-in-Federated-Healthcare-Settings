@@ -73,8 +73,7 @@ class DeepSurvNetwork(nn.Module):
 class NegativeLogLikelihood(nn.Module):
     def __init__(self, config):
         super(NegativeLogLikelihood, self).__init__()
-        self.L2_reg = config['l2_reg']
-        self.reg = Regularization(order=2, weight_decay=self.L2_reg)
+        # Note: L2 regularization is handled by optimizer weight_decay, not here
 
     def forward(self, risk_pred, y, e, model):
         # Clamp risk predictions to prevent overflow in exp()
@@ -92,22 +91,19 @@ class NegativeLogLikelihood(nn.Module):
         log_loss = torch.clamp(log_loss, min=1e-7)  # Prevent log(0)
         log_loss = torch.log(log_loss).reshape(-1, 1)
         
-        # Calculate negative log likelihood
+        # Calculate negative log likelihood (should be negative!)
         num_events = torch.sum(e)
         if num_events == 0:
             return torch.tensor(0.0, requires_grad=True)  # No events, return zero loss
         
         neg_log_loss = -torch.sum((risk_pred - log_loss) * e) / num_events
-        l2_loss = self.reg(model)
-        
-        total_loss = neg_log_loss + l2_loss
         
         # Check for NaN/inf and return a large finite value instead
-        if torch.isnan(total_loss) or torch.isinf(total_loss):
+        if torch.isnan(neg_log_loss) or torch.isinf(neg_log_loss):
             print("[WARNING] Loss is NaN/Inf, returning large finite value")
             return torch.tensor(1000.0, requires_grad=True)
         
-        return total_loss
+        return neg_log_loss
 
 
 class DeepSurv:
@@ -185,7 +181,7 @@ class DeepSurv:
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), 
             lr=self.lr,
-            weight_decay=0.0  # L2 reg handled in loss function
+            weight_decay=l2_reg  # L2 regularization via optimizer weight_decay
         )
         
         # Learning rate scheduler with warm-up for stability
