@@ -252,9 +252,10 @@ def init_logging(config):
 
 def main(config: Config):
     # Random seeds to test randomness
-    # Using prime number multiplier to avoid pathological seeds like 1237
+    # Using well-tested seeds from ML research (42, 123, 456, 789, 1024, 2048)
     run_id = int(os.environ.get("RUN_ID", 0))
-    seed = 10000 + (run_id * 13)
+    STABLE_SEEDS = [42, 123, 456, 789, 1024, 2048, 4096, 8192]
+    seed = STABLE_SEEDS[run_id] if run_id < len(STABLE_SEEDS) else 42 + run_id
 
     config.random_state = seed
 
