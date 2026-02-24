@@ -26,10 +26,10 @@ class Config:
     strategy: str = "FedAvg"  # Options: "FedAvg", "FedProx", "FedAdam", "FedSurvForest", etc. Used for DeepSurv and RSF federated strategies.
     num_rounds: int = 2
     num_epochs: int = 2
-    batch_size: int = 16  # Increased from 8 - better for small datasets with dropout
+    batch_size: int = 32  # Larger batches for stability (was 16)
     num_time_bins: int = 100
     strategy: str = "FedAvg"
-    lr: float = 0.001
+    lr: float = 0.0005  # Reduced from 0.001 for more stable training
     
     # Data parameters:
     centers: list = field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
@@ -55,12 +55,12 @@ class Config:
     min_samples_leaf: int = 10
     #random_state: int = 42
 
-    # DEEPSURV PARAMETERS (optimized for small datasets):
-    deepsurv_hidden_layers: list = field(default_factory=lambda: [64, 32])  # Slightly larger
-    deepsurv_dropout: float = 0.1  # Reduced from 0.3 - too much for small data
-    deepsurv_batch_norm: bool = False  # Keep disabled
+    # DEEPSURV PARAMETERS (optimized for stability):
+    deepsurv_hidden_layers: list = field(default_factory=lambda: [64, 32])  # Balanced architecture
+    deepsurv_dropout: float = 0.2  # Increased from 0.1 for better generalization
+    deepsurv_batch_norm: bool = False  # Keep disabled for small batches
     deepsurv_activation: str = 'ReLU'
-    deepsurv_l2_reg: float = 0.0001  # Reduced from 0.001 - less aggressive regularization
+    deepsurv_l2_reg: float = 0.001  # Increased from 0.0001 for stronger regularization
 
 
 

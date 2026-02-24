@@ -54,7 +54,11 @@ class DeepSurvNetwork(nn.Module):
             if i and self.drop is not None:  # adds dropout layer
                 layers.append(nn.Dropout(self.drop))
             # adds linear layer
-            layers.append(nn.Linear(self.dims[i], self.dims[i+1]))
+            linear = nn.Linear(self.dims[i], self.dims[i+1])
+            # Initialize weights properly for stable training
+            nn.init.xavier_normal_(linear.weight)
+            nn.init.constant_(linear.bias, 0.0)
+            layers.append(linear)
             if self.norm:  # adds batchnormalize layer
                 layers.append(nn.BatchNorm1d(self.dims[i+1]))
             # adds activation layer
@@ -178,7 +182,16 @@ class DeepSurv:
         # Initialize network
         self.network = DeepSurvNetwork(self.config).to(self.device)
         self.criterion = NegativeLogLikelihood(self.config)
-        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(), 
+            lr=self.lr,
+            weight_decay=0.0  # L2 reg handled in loss function
+        )
+        
+        # Learning rate scheduler with warm-up for stability
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, mode='min', factor=0.5, patience=3, verbose=False
+        )
         
         self.logger = logging.getLogger("main")
         
@@ -281,6 +294,10 @@ class DeepSurv:
                 
                 # Backward pass
                 loss.backward()
+                
+                # Gradient clipping to prevent exploding gradients
+                torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
+                
                 self.optimizer.step()
                 
                 epoch_loss += loss.item()
@@ -303,6 +320,9 @@ class DeepSurv:
                 
                 avg_val_loss = val_loss / val_batches
                 self.network.train()
+                
+                # Update learning rate based on validation loss
+                self.scheduler.step(avg_val_loss)
                 
                 # Early stopping check
                 if avg_val_loss < best_val_loss:
