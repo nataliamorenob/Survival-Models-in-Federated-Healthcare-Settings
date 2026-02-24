@@ -218,6 +218,7 @@ print("DEBUG: testing imports...")
 
 import logging
 import numpy as np
+import torch
 import flwr as fl
 from config import Config
 from dataset_manager import DatasetManager
@@ -259,8 +260,15 @@ def main(config: Config):
 
     config.random_state = seed
 
-    np.random.seed(seed)
+    # Set ALL random seeds (Python, NumPy, PyTorch)
     random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # For GPU training
+    
+    # Make PyTorch deterministic (may impact performance slightly)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
     # Init logging
