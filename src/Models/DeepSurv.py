@@ -182,7 +182,7 @@ class DeepSurv:
         
         self.logger = logging.getLogger("main")
         
-    def fit(self, X, y, X_val=None, y_val=None, verbose=True, client_id=None):
+    def fit(self, X, y, X_val=None, y_val=None, verbose=True, client_id=None, log_file=None):
         """
         Fit the DeepSurv model.
         
@@ -193,7 +193,17 @@ class DeepSurv:
             y_val: Optional validation labels
             verbose: Whether to print training progress
             client_id: Optional client identifier for federated learning (added to log prefix)
+            log_file: Optional file path to write training logs (useful for federated learning)
         """
+        # Setup file logging if specified
+        file_handler = None
+        if log_file:
+            import os
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            file_handler = logging.FileHandler(log_file, mode='a')
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+            self.logger.addHandler(file_handler)
         # Convert structured array to separate arrays
         if isinstance(y, np.ndarray) and y.dtype.names:
             events = y['event'].astype(np.float32)
@@ -307,14 +317,20 @@ class DeepSurv:
                 # Log every epoch with both train and val loss
                 if verbose:
                     prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"
-                    print(f"{prefix} Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
-                    if (epoch + 1) % 10 == 0:
+                    log_msg = f"{prefix} Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}"
+                    print(log_msg)
+                    if log_file:
+                        self.logger.info(log_msg)
+                    elif (epoch + 1) % 10 == 0:
                         self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
                 
                 # Early stopping
                 if patience_counter >= patience:
                     prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"
-                    print(f"{prefix} Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}")
+                    stop_msg = f"{prefix} Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}"
+                    print(stop_msg)
+                    if log_file:
+                        self.logger.info(stop_msg)
                     if verbose:
                         self.logger.info(f"Early stopping at epoch {epoch+1}. Best epoch: {best_epoch+1} | Best val loss: {best_val_loss:.4f}")
                     # Restore best model
@@ -342,6 +358,11 @@ class DeepSurv:
         
         # After training, estimate baseline hazard using Breslow estimator
         self._estimate_baseline_hazard(X, y)
+        
+        # Clean up file handler if it was added
+        if file_handler:
+            self.logger.removeHandler(file_handler)
+            file_handler.close()
         
         return self
     

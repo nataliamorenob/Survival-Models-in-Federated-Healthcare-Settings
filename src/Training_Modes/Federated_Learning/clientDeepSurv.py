@@ -127,13 +127,19 @@ class FederatedDeepSurvClient(fl.client.Client):
 
         # Train locally using LOCAL risk sets with validation for early stopping
         # NOTE: This is the biased approximation - risk sets only contain local patients
+        import os
+        log_dir = "src/results/federated_logs"
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f"client_{self.cid}_training.log")
+        
         self.model.fit(
             self.X_train, 
             self.y_train,
             X_val=self.X_val,
             y_val=self.y_val,
             verbose=True,  # Show training/validation loss per epoch
-            client_id=self.cid  # Add client identifier to logs
+            client_id=self.cid,  # Add client identifier to logs
+            log_file=log_file  # Write to separate file per client
         )
 
         # Clear optimizer state to reduce memory usage between rounds
