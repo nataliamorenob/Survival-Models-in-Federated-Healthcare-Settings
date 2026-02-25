@@ -207,7 +207,7 @@ class DeepSurv:
         
         self.logger = logging.getLogger("main")
         
-    def fit(self, X, y, X_val=None, y_val=None, verbose=True, client_id=None, log_file=None):
+    def fit(self, X, y, X_val=None, y_val=None, verbose=True, client_id=None, log_file=None, proximal_mu=None, global_weights=None):
         """
         Fit the DeepSurv model.
         
@@ -219,6 +219,8 @@ class DeepSurv:
             verbose: Whether to print training progress
             client_id: Optional client identifier for federated learning (added to log prefix)
             log_file: Optional file path to write training logs (useful for federated learning)
+            proximal_mu: FedProx regularization coefficient (mu). If provided, adds proximal term.
+            global_weights: Global model weights (list of tensors) for FedProx proximal regularization.
         """
         # Setup file logging if specified
         file_handler = None
@@ -304,8 +306,16 @@ class DeepSurv:
                 # Forward pass
                 risk_pred = self.network(batch_X)
                 
-                # Calculate loss
+                # Calculate Cox loss
                 loss = self.criterion(risk_pred, batch_t, batch_e, self.network)
+                
+                # Add FedProx proximal term: (mu/2)||w - w_global||^2
+                if proximal_mu is not None and global_weights is not None:
+                    proximal_term = 0.0
+                    for local_param, global_param in zip(self.network.parameters(), global_weights):
+                        proximal_term += torch.sum((local_param - global_param) ** 2)
+                    proximal_term *= (proximal_mu / 2.0)
+                    loss = loss + proximal_term
                 
                 # Backward pass
                 loss.backward()

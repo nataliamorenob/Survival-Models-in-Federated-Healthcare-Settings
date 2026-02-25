@@ -105,7 +105,11 @@ class FederatedDeepSurvClient(fl.client.Client):
         """
         print(f"[Client {self.cid}] Training DeepSurv for {self.config.num_epochs} epochs")
 
-        # Set global weights if provided
+        # Get proximal_mu from server config (FedProx only)
+        proximal_mu = ins.config.get("proximal_mu", None)
+        
+        # Set global weights if provided AND store them for proximal term
+        global_weights = None
         if ins.parameters.tensors:
             from flwr.common import parameters_to_ndarrays
             
@@ -124,6 +128,10 @@ class FederatedDeepSurvClient(fl.client.Client):
                 )
                 param_idx += 1
             self.set_parameters(params_list)
+            
+            # Store global weights for FedProx proximal term
+            if proximal_mu is not None:
+                global_weights = [torch.tensor(p).to(self.model.device) for p in params_list]
 
         # Train locally using LOCAL risk sets with validation for early stopping
         # NOTE: This is the biased approximation - risk sets only contain local patients
@@ -150,6 +158,8 @@ class FederatedDeepSurvClient(fl.client.Client):
             f.write(f"{'='*80}\n")
         
         print(f"[Client {self.cid}] === Run {run_id} - Round {server_round} ===")
+        if proximal_mu is not None:
+            print(f"[Client {self.cid}] Using FedProx with mu={proximal_mu}")
         
         self.model.fit(
             self.X_train, 
@@ -158,7 +168,9 @@ class FederatedDeepSurvClient(fl.client.Client):
             y_val=self.y_val,
             verbose=True,  # Show training/validation loss per epoch
             client_id=self.cid,  # Add client identifier to logs
-            log_file=log_file  # Write to separate file per client
+            log_file=log_file,  # Write to separate file per client
+            proximal_mu=proximal_mu,  # FedProx regularization coefficient
+            global_weights=global_weights  # Global model weights for proximal term
         )
 
         # Clear optimizer state to reduce memory usage between rounds

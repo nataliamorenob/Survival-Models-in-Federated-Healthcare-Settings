@@ -125,11 +125,10 @@ class DeepSurvFedProx(FedProx):
     
     NOTE: FedProx uses standard FedAvg aggregation on the server side.
     The difference is in the client-side training where a proximal term
-    is added to the loss function. We don't override aggregate_fit() 
-    because the parent class already implements FedAvg aggregation correctly.
+    is added to the loss function: L_local + (mu/2)||w - w_global||^2
     
-    WARNING: Currently, the proximal term is NOT implemented in the client.
-    This means FedProx is currently behaving exactly like FedAvg.
+    The proximal term encourages clients to stay close to the global model,
+    which helps with convergence on heterogeneous data.
     
     Hyperparameters:
     - proximal_mu: Coefficient for the proximal term (default: 0.01)
@@ -144,17 +143,18 @@ class DeepSurvFedProx(FedProx):
         logger.info(f"[FedProx] Initialized with proximal_mu={kwargs.get('proximal_mu')}")
 
     def configure_fit(self, server_round, parameters, client_manager):
-        """Configure training and pass round number to clients."""
+        """Configure training and pass round number + proximal_mu to clients."""
         # Get the default fit configuration from parent
         fit_config = super().configure_fit(server_round, parameters, client_manager)
         
-        # Inject server_round into each client's config
+        # Inject server_round AND proximal_mu into each client's config
         if fit_config:
             updated_config = []
             for client, fit_ins in fit_config:
-                # Add server_round to the config
+                # Add server_round and proximal_mu to the config
                 new_config = dict(fit_ins.config) if fit_ins.config else {}
                 new_config["server_round"] = server_round
+                new_config["proximal_mu"] = self.proximal_mu  # Pass mu to client
                 
                 # Create new FitIns with updated config
                 new_fit_ins = fl.common.FitIns(
