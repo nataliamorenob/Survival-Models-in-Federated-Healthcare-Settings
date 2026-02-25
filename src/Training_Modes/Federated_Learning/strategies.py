@@ -260,11 +260,11 @@ class DeepSurvFedAdam(FedAdam):
     """
     
     def __init__(self, *args, **kwargs):
-        # Set very conservative hyperparameters for survival analysis
-        kwargs.setdefault('eta', 1e-5)  # Server learning rate (default: 1e-1)
-        kwargs.setdefault('beta_1', 0.5)  # First moment coefficient (default: 0.9)
+        # Set hyperparameters for survival analysis with adaptive optimization
+        kwargs.setdefault('eta', 1e-2)  # Server learning rate (increased from 1e-5 for learning)
+        kwargs.setdefault('beta_1', 0.9)  # First moment coefficient (standard Adam default)
         kwargs.setdefault('beta_2', 0.99)  # Second moment coefficient (default: 0.99)
-        kwargs.setdefault('tau', 1e-3)  # Regularization term (default: 1e-9)
+        kwargs.setdefault('tau', 1e-9)  # Regularization term (standard default)
         super().__init__(*args, **kwargs)
         
         logger = logging.getLogger("main")
