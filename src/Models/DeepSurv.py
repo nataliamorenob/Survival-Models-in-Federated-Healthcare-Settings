@@ -81,31 +81,43 @@ class NegativeLogLikelihood(nn.Module):
         
         # Create risk set mask: mask[i,j] = 1 if t_j >= t_i (j is at risk when i fails)
         mask = torch.ones(y.shape[0], y.shape[0], device=risk_pred.device)
-        mask[(y.T - y) > 0] = 0
+        mask[(y.T - y) < 0] = 0  # Exclude j where t_j < t_i (already failed before i)
         
         # Calculate log-sum-exp for numerical stability
-        # For each event time, sum exp(risk) over risk set
-        risk_exp = torch.exp(risk_pred)
-        risk_sum = torch.sum(risk_exp * mask, dim=0, keepdim=True).T
-        risk_sum = torch.clamp(risk_sum, min=1e-7)  # Prevent log(0)
+        # For each individual i's risk set, compute log(sum(exp(risk_j)))
+        # Use logsumexp for better numerical stability than exp + log
         
-        log_risk_sum = torch.log(risk_sum)
+        # Prepare risk matrix: each row i needs all risk values
+        # risk_pred: [n, 1] -> risk_pred.T: [1, n] -> broadcasts to [n, n]
+        risk_matrix = risk_pred.T  # Each row has [risk_0, ..., risk_n-1]
         
-        # Cox partial log-likelihood: sum over events of [risk - log(sum_risk_set)]
+        # Set masked positions to -inf so exp(-inf) = 0 (masked values don't contribute)
+        masked_risks = torch.where(
+            mask.bool(), 
+            risk_matrix, 
+            torch.tensor(float('-inf'), device=risk_pred.device)
+        )
+        
+        # Compute log(sum(exp(risk_j))) for each i over their risk set R_i
+        # dim=1 sums over columns (j index), giving one value per row (i)
+        log_risk_sum = torch.logsumexp(masked_risks, dim=1, keepdim=True)  # [n, 1]
+        
+        # Cox partial log-likelihood: sum over events of [risk_i - log(sum_j∈R_i exp(risk_j))]
         num_events = torch.sum(e)
         if num_events == 0:
-            return torch.tensor(0.0, requires_grad=True, device=risk_pred.device)
+            # Return zero loss connected to computational graph (preserves gradient flow)
+            return risk_pred.sum() * 0.0
         
         # Partial log-likelihood (to maximize, so we minimize negative)
         partial_ll = torch.sum((risk_pred - log_risk_sum) * e) / num_events
         
-        # Return NEGATIVE log-likelihood (to minimize)
+        # Return NEGATIVE Cox log-likelihood (to minimize)
         neg_log_loss = -partial_ll
         
-        # Check for NaN/inf
+        # Check for NaN/inf - return large value still connected to graph
         if torch.isnan(neg_log_loss) or torch.isinf(neg_log_loss):
             print("[WARNING] Loss is NaN/Inf, returning large finite value")
-            return torch.tensor(1000.0, requires_grad=True, device=risk_pred.device)
+            return risk_pred.sum() * 0.0 + 1000.0
         
         return neg_log_loss
 
@@ -128,7 +140,7 @@ class DeepSurv:
         lr=0.001,
         l2_reg=0.0,
         epochs=100,
-        batch_size=64,
+        batch_size=32,
         random_state=None,
         device=None
     ):
@@ -235,13 +247,16 @@ class DeepSurv:
         times_tensor = torch.FloatTensor(times_sorted).reshape(-1, 1).to(self.device)
         events_tensor = torch.FloatTensor(events_sorted).reshape(-1, 1).to(self.device)
         
+        # Use full-batch: set batch_size to dataset size
+        effective_batch_size = len(X_sorted)
+        
         # Create dataset and dataloader
         dataset = TensorDataset(X_tensor, times_tensor, events_tensor)
         dataloader = DataLoader(
             dataset, 
-            batch_size=self.batch_size, 
+            batch_size=effective_batch_size,  # Full-batch per client
             shuffle=False,
-            drop_last=True  # Skip last incomplete batch to avoid BatchNorm errors
+            drop_last=False  # Keep all samples since using full batch
         )
         
         # Prepare validation data if provided
@@ -262,7 +277,7 @@ class DeepSurv:
             val_dataset = TensorDataset(X_val_tensor, val_times_tensor, val_events_tensor)
             val_dataloader = DataLoader(
                 val_dataset,
-                batch_size=self.batch_size,
+                batch_size=len(X_val_sorted),  # Full-batch for validation too
                 shuffle=False,
                 drop_last=False
             )
