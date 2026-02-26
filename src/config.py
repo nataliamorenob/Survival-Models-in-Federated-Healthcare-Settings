@@ -57,7 +57,7 @@ class Config:
     #random_state: int = 42
 
     # DEEPSURV PARAMETERS (optimized for stability):
-    deepsurv_hidden_layers: list = field(default_factory=lambda: [64, 32])  # Balanced architecture
+    deepsurv_hidden_layers: list = field(default_factory=lambda: [64, 32])  # Balanced architecture #64,32
     deepsurv_dropout: float = 0.2  # Increased from 0.1 for better generalization
     deepsurv_batch_norm: bool = False  # Keep disabled for small batches
     deepsurv_activation: str = 'ReLU'

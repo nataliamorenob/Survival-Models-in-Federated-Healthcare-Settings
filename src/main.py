@@ -280,7 +280,7 @@ def main(config: Config):
         logger.info("Federated training mode selected.")
     elif config.training_mode == "centralized":
         logger.info("Centralized training mode selected.")
-        run_centralized_RSF(config)
+        run_centralized(config)
         return
     elif config.training_mode == "local":
         logger.info("Local training mode selected.")
@@ -288,7 +288,7 @@ def main(config: Config):
             raise ValueError(
                 f"Local mode requires num_clients=1, got {config.num_clients}"
             )
-        run_local_RSF(config)
+        run_local(config)
         return
     else:
         raise ValueError(f"Unknown training_mode: {config.training_mode}")
@@ -463,16 +463,16 @@ def main(config: Config):
 
 if __name__ == "__main__":
     # FEDERATED DEEPSURV TRAINING (Local Risk Set Approximation):
-    user_config = Config(
-        model="DeepSurv",
-        centers=[0, 1, 2, 3, 4],
-        training_mode="federated",
-        num_clients=5,
-        num_rounds=20,
-        num_epochs=50,  # Local epochs per round
-        eval_grid_mode="global",
-        strategy="FedProx"  # FedAdam, FedProx and FedAvg available for DeepSurv
-    )
+    # user_config = Config(
+    #     model="DeepSurv",
+    #     centers=[0, 1, 2, 3, 4],
+    #     training_mode="federated",
+    #     num_clients=5,
+    #     num_rounds=20,
+    #     num_epochs=50,  # Local epochs per round
+    #     eval_grid_mode="global",
+    #     strategy="FedProx"  # FedAdam, FedProx and FedAvg available for DeepSurv
+    # )
 
     # FEDERATED RSF TRAINING:
     # user_config = Config(
@@ -495,6 +495,16 @@ if __name__ == "__main__":
     #     num_rounds=2,
     #     eval_grid_mode="global"  # or "client"
     # )
+
+    user_config = Config(
+        model="DeepSurv",
+        centers=[0, 1, 2, 3],
+        training_mode="centralized",
+        num_clients=4,
+        strategy="FedSurvForest",
+        num_epochs=750,
+        eval_grid_mode="global"  # or "client"
+    )
 
     # # LOCAL TRAINING:
     # user_config = Config(
