@@ -512,6 +512,7 @@ class DatasetManager:
         center_train_dfs = {}
         center_test_dfs = {}
 
+        # Concatenate centers
         for center in self.config.centers:
             train_ds = FedTcgaBrca(center=center, train=True)
             test_ds = FedTcgaBrca(center=center, train=False)
@@ -521,17 +522,21 @@ class DatasetManager:
         df_train = pd.concat(list(center_train_dfs.values()), ignore_index=True)
         df_test = pd.concat(list(center_test_dfs.values()), ignore_index=True)
 
-        # Normalize age globally using the combined train set
+        # Normalize age globally using the combined train set (BEFORE split)
         age_mean = df_train["feature_0"].mean()
         age_std = df_train["feature_0"].std()
         if age_std == 0:
             age_std = 1.0
 
-        for df in [df_train, df_test]:
-            df["feature_0"] = (df["feature_0"] - age_mean) / age_std
-
-        for center, df_center_test in center_test_dfs.items():
-            df_center_test["feature_0"] = (df_center_test["feature_0"] - age_mean) / age_std
+        # Normalize the concatenated dataframes FIRST
+        df_train["feature_0"] = (df_train["feature_0"] - age_mean) / age_std
+        df_test["feature_0"] = (df_test["feature_0"] - age_mean) / age_std
+        
+        # THEN normalize per-center test data (which are separate from df_test)
+        # These are the original per-center DataFrames, not slices of df_test
+        for center in center_test_dfs.keys():
+            center_test_dfs[center] = center_test_dfs[center].copy()
+            center_test_dfs[center]["feature_0"] = (center_test_dfs[center]["feature_0"] - age_mean) / age_std
 
         self.log_and_print(
             f"[Centralized] Normalized feature_0 (age) with mean={age_mean:.2f}, std={age_std:.2f}"
@@ -581,6 +586,14 @@ class DatasetManager:
 
         # Random Survival Forest (RSF) and DeepSurv models
         if self.config.model.lower() in ["rsf", "deepsurv"]:
+            # Validation checks BEFORE split
+            self.log_and_print(
+                f"[Centralized] Pre-split validation → "
+                f"df_train: {len(df_train)} samples, {df_train['event'].sum()} events, "
+                f"time range=[{df_train['time'].min():.2f}, {df_train['time'].max():.2f}], "
+                f"feature_0 (age) range=[{df_train['feature_0'].min():.2f}, {df_train['feature_0'].max():.2f}]"
+            )
+            
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center=0)
 
             self.log_and_print(
@@ -589,6 +602,18 @@ class DatasetManager:
                 f"val={len(df_val)} (events={df_val['event'].sum()}), "
                 f"test={len(df_test)} (events={df_test['event'].sum()})"
             )
+            
+            # Validation: Check for duplicates or data leakage
+            train_times = set(zip(df_train_split['time'].values, df_train_split['event'].values))
+            test_times = set(zip(df_test['time'].values, df_test['event'].values))
+            overlap = train_times.intersection(test_times)
+            if len(overlap) > 0:
+                self.log_and_print(
+                    f"[Centralized] WARNING: {len(overlap)} overlapping (time, event) pairs between train and test!",
+                    "warning"
+                )
+            else:
+                self.log_and_print("[Centralized] No train/test overlap detected (good!)")
 
             global_data = {
                 "train_df": df_train_split,
@@ -638,21 +663,11 @@ class DatasetManager:
                     "test_df": df_center_test,
                 }
 
+            self.log_and_print("[Centralized] Finished building centralized dataloaders")
             return {"global": global_data, "per_center": per_center}
 
-        # # Deep models / other
-        # self.log_and_print("[Centralized] Splitting 80/20 train/val ...")
-        # df_train_split, df_val = self._split_train_val(df_train, "centralized")
-        # df_val["feature_0"] = (df_val["feature_0"] - age_mean) / age_std
-
-        for center, df_center_test in center_test_dfs.items():
-            per_center[center] = {"test": df_center_test}
-
-        self.log_and_print("[Centralized] Finished building centralized dataloaders")
-        return {
-            "global": {"train": df_train_split, "val": df_val, "test": df_test},
-            "per_center": per_center,
-        }
+        # If model is not RSF/DeepSurv, raise error
+        raise ValueError(f"[Centralized] Unsupported model: {self.config.model}")
 
     # ----------------------------------------------------------------------
     # HELPERS
