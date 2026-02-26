@@ -168,13 +168,29 @@ def run_centralized(config):
 	if config.model.lower() == "deepsurv":
 		logger.info(f"[Centralized] Training DeepSurv for {config.num_epochs} epochs with validation")
 		
+		# Setup client logs directory
+		run_id = os.environ.get("RUN_ID", "unknown")
+		log_dir = os.path.join(config.experiment_dir, "client_logs")
+		os.makedirs(log_dir, exist_ok=True)
+		log_file = os.path.join(log_dir, "centralized_training.log")
+		
+		logger.info(f"[Centralized] Training logs will be saved to: {log_file}")
+		
+		# Add run separator to log file
+		with open(log_file, 'a') as f:
+			f.write(f"\n{'='*80}\n")
+			f.write(f"RUN {run_id} - CENTRALIZED TRAINING - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+			f.write(f"{'='*80}\n")
+		
 		# Train with validation data for early stopping
 		model.fit(
 			global_data["X_train"], 
 			global_data["y_train"],
 			X_val=global_data["X_val"],
 			y_val=global_data["y_val"],
-			verbose=True
+			verbose=True,
+			client_id="centralized",
+			log_file=log_file
 		)
 		logger.info(f"[Centralized] DeepSurv training completed")
 
