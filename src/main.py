@@ -463,16 +463,15 @@ def main(config: Config):
 
 if __name__ == "__main__":
     # FEDERATED DEEPSURV TRAINING (Local Risk Set Approximation):
-    # user_config = Config(
-    #     model="DeepSurv",
-    #     centers=[0, 1, 2, 3, 4],
-    #     training_mode="federated",
-    #     num_clients=5,
-    #     num_rounds=20,
-    #     num_epochs=50,  # Local epochs per round
-    #     eval_grid_mode="global",
-    #     strategy="FedProx"  # FedAdam, FedProx and FedAvg available for DeepSurv
-    # )
+    user_config = Config(
+        model="DeepSurv",
+        centers=[0, 1, 2],
+        training_mode="federated",
+        num_clients=3,
+        num_rounds=40,
+        num_epochs=50,  # Local epochs per round
+        strategy="FedProx"  # FedAdam, FedProx and FedAvg available for DeepSurv
+    )
 
     # FEDERATED RSF TRAINING:
     # user_config = Config(
@@ -491,20 +490,19 @@ if __name__ == "__main__":
     #     centers=[0, 1, 2],
     #     training_mode="centralized",
     #     num_clients=3,
-    #     strategy="FedSurvForest",
     #     num_rounds=2,
     #     eval_grid_mode="global"  # or "client"
     # )
 
-    user_config = Config(
-        model="DeepSurv",
-        centers=[0, 1, 2, 3],
-        training_mode="centralized",
-        num_clients=4,
-        strategy="FedSurvForest",
-        num_epochs=750,
-        eval_grid_mode="global"  # or "client"
-    )
+    # DEEPSURV CENTRALIZED:
+    # user_config = Config(
+    #     model="DeepSurv",
+    #     centers=[0, 1, 4],
+    #     training_mode="centralized",
+    #     num_clients=3,
+    #     num_epochs=750,
+    #     eval_grid_mode="global"  # or "client"
+    # )
 
     # # LOCAL TRAINING:
     # user_config = Config(
@@ -512,8 +510,17 @@ if __name__ == "__main__":
     #     centers=[4],
     #     training_mode="local",
     #     num_clients=1,
-    #     strategy="FedSurvForest",
     #     num_rounds=2,
+    #     eval_grid_mode="global"  # or "client"
+    # )
+
+    # LOCAL TRAINING DEEPSURV:
+    # user_config = Config(
+    #     model="DeepSurv",
+    #     centers=[4],
+    #     training_mode="local",
+    #     num_clients=1,
+    #     num_epochs=750,
     #     eval_grid_mode="global"  # or "client"
     # )
     main(user_config)
