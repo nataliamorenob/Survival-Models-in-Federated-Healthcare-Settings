@@ -248,29 +248,43 @@ class DatasetManager:
         )
         self._log_data_preview(df_train, df_test, center)
 
-        # Normalize age (feature_0):
-        if "feature_0" in df_train.columns:
-            age_mean = df_train["feature_0"].mean()
-            age_std = df_train["feature_0"].std()
-            if age_std == 0:
-                age_std = 1.0
-
-            for df in [df_train, df_test]:
-                df["feature_0"] = (df["feature_0"] - age_mean) / age_std
-
-            self.log_and_print(
-                f"[Center {center}] Normalized feature_0 (age): mean={age_mean:.2f}, std={age_std:.2f}"
-            )
-
         # MDEL-SPECIFIC HANDELING:------------------------>
         
         # CoxPH model
         if self.config.model.lower() == "coxph":
+            # Normalize BEFORE split for CoxPH (no validation set)
+            if "feature_0" in df_train.columns:
+                age_mean = df_train["feature_0"].mean()
+                age_std = df_train["feature_0"].std()
+                if age_std == 0:
+                    age_std = 1.0
+
+                for df in [df_train, df_test]:
+                    df["feature_0"] = (df["feature_0"] - age_mean) / age_std
+
+                self.log_and_print(
+                    f"[Center {center}] Normalized feature_0 (age): mean={age_mean:.2f}, std={age_std:.2f}"
+                )
+            
             self.log_and_print(f"[Center {center}] Model=CoxPH → Using train/test directly.")
             dataloaders[center] = {"train": df_train, "val": None, "test": df_test}
 
         # Stacked Logistic Regression (SLR) model
         elif self.config.model.lower() == "slr":
+            # Normalize BEFORE split for SLR (no validation set)
+            if "feature_0" in df_train.columns:
+                age_mean = df_train["feature_0"].mean()
+                age_std = df_train["feature_0"].std()
+                if age_std == 0:
+                    age_std = 1.0
+
+                for df in [df_train, df_test]:
+                    df["feature_0"] = (df["feature_0"] - age_mean) / age_std
+
+                self.log_and_print(
+                    f"[Center {center}] Normalized feature_0 (age): mean={age_mean:.2f}, std={age_std:.2f}"
+                )
+            
             self.log_and_print(f"[Center {center}] Model=SLR → Performing stacking transformation.")
 
             # First, find the global max time across all centers for consistent binning
@@ -290,19 +304,26 @@ class DatasetManager:
             dataloaders[center] = {"train": df_train_stacked, "val": None, "test": df_test_stacked}
         
         elif self.config.model.lower() in ["rsf", "deepsurv"]:
-            
-            # NO VAL SET (OLD):
-            # # RSF always keeps original DataFrames
-            # dataloaders[center] = {
-            #     "train_df": df_train,
-            #     "test_df": df_test,
-            #     "val": None
-            # }
-
-
-
+            # IMPORTANT: Split FIRST, then normalize to avoid data leakage
             # Event-aware train/validation split (FedSurF++)
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
+            
+            # NOW compute normalization from training split ONLY (no leakage)
+            if "feature_0" in df_train_split.columns:
+                age_mean = df_train_split["feature_0"].mean()
+                age_std = df_train_split["feature_0"].std()
+                if age_std == 0:
+                    age_std = 1.0
+
+                # Apply to train_split, val, and test
+                df_train_split["feature_0"] = (df_train_split["feature_0"] - age_mean) / age_std
+                df_val["feature_0"] = (df_val["feature_0"] - age_mean) / age_std
+                df_test["feature_0"] = (df_test["feature_0"] - age_mean) / age_std
+
+                self.log_and_print(
+                    f"[Center {center}] Normalized feature_0 (age) using train_split stats: "
+                    f"mean={age_mean:.2f}, std={age_std:.2f}"
+                )
 
             dataloaders[center] = {
                 "train_df": df_train_split,
@@ -437,36 +458,6 @@ class DatasetManager:
         df_train = self._to_dataframe(train_ds)
         df_test = self._to_dataframe(test_ds)
 
-        # Normalize age
-        age_mean = df_train["feature_0"].mean()
-        age_std = df_train["feature_0"].std()
-        if age_std == 0:
-            age_std = 1.0
-        for df in [df_train, df_test]:
-            df["feature_0"] = (df["feature_0"] - age_mean) / age_std
-
-        self.log_and_print(
-            f"[Local] Normalized feature_0 (age) with mean={age_mean:.2f}, std={age_std:.2f}"
-        )
-
-        # if self.config.model.lower() == "coxph":
-        #     self.log_and_print("[Local] Model=CoxPH → Using train/test directly.")
-        #     return {"train": df_train, "val": None, "test": df_test}
-
-        # if self.config.model.lower() == "slr":
-        #     self.log_and_print("[Local] Model=SLR → Performing stacking transformation.")
-
-        #     global_max_time = self._get_global_max_time()
-
-        #     df_train_stacked = self._stack_data(
-        #         df_train, center=center, split="train", global_max_time=global_max_time
-        #     )
-        #     df_test_stacked = self._stack_data(
-        #         df_test, center=center, split="test", global_max_time=global_max_time
-        #     )
-
-        #     return {"train": df_train_stacked, "val": None, "test": df_test_stacked}
-
         if self.config.model.lower() in ["rsf", "deepsurv"]:
             # Log pre-split statistics for debugging
             self.log_and_print(
@@ -474,6 +465,31 @@ class DatasetManager:
                 f"train: {len(df_train)} samples, {df_train['event'].sum()} events, "
                 f"time range=[{df_train['time'].min():.2f}, {df_train['time'].max():.2f}], "
                 f"test: {len(df_test)} samples, {df_test['event'].sum()} events"
+            )
+            
+            # Log the random state being used
+            split_seed = self.config.random_state + int(center)
+            self.log_and_print(
+                f"[Local] Using split seed: {split_seed} (base_seed={self.config.random_state} + center={center})"
+            )
+            
+            # IMPORTANT: Split FIRST, normalize AFTER to avoid data leakage
+            df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
+            
+            # NOW compute normalization from training split ONLY
+            age_mean = df_train_split["feature_0"].mean()
+            age_std = df_train_split["feature_0"].std()
+            if age_std == 0:
+                age_std = 1.0
+            
+            # Apply to train_split, val, and test
+            df_train_split["feature_0"] = (df_train_split["feature_0"] - age_mean) / age_std
+            df_val["feature_0"] = (df_val["feature_0"] - age_mean) / age_std
+            df_test["feature_0"] = (df_test["feature_0"] - age_mean) / age_std
+
+            self.log_and_print(
+                f"[Local] Normalized feature_0 (age) using train_split stats: "
+                f"mean={age_mean:.2f}, std={age_std:.2f}"
             )
             
             # Log the random state being used
@@ -574,67 +590,7 @@ class DatasetManager:
         df_train = pd.concat(list(center_train_dfs.values()), ignore_index=True)
         df_test = pd.concat(list(center_test_dfs.values()), ignore_index=True)
 
-        # Normalize age globally using the combined train set (BEFORE split)
-        age_mean = df_train["feature_0"].mean()
-        age_std = df_train["feature_0"].std()
-        if age_std == 0:
-            age_std = 1.0
-
-        # Normalize the concatenated dataframes FIRST
-        df_train["feature_0"] = (df_train["feature_0"] - age_mean) / age_std
-        df_test["feature_0"] = (df_test["feature_0"] - age_mean) / age_std
-        
-        # THEN normalize per-center test data (which are separate from df_test)
-        # These are the original per-center DataFrames, not slices of df_test
-        for center in center_test_dfs.keys():
-            center_test_dfs[center] = center_test_dfs[center].copy()
-            center_test_dfs[center]["feature_0"] = (center_test_dfs[center]["feature_0"] - age_mean) / age_std
-
-        self.log_and_print(
-            f"[Centralized] Normalized feature_0 (age) with mean={age_mean:.2f}, std={age_std:.2f}"
-        )
-
         per_center = {}
-
-        # # CoxPH model
-        # if self.config.model.lower() == "coxph":
-        #     self.log_and_print("[Centralized] Model=CoxPH → Using train/test directly.")
-
-        #     for center, df_center_test in center_test_dfs.items():
-        #         per_center[center] = {"test": df_center_test}
-
-        #     return {
-        #         "global": {"train": df_train, "val": None, "test": df_test},
-        #         "per_center": per_center,
-        #     }
-
-        # # Stacked Logistic Regression (SLR) model
-        # if self.config.model.lower() == "slr":
-        #     self.log_and_print("[Centralized] Model=SLR → Performing stacking transformation.")
-
-        #     global_max_time = self._get_global_max_time()
-
-        #     df_train_stacked = self._stack_data(
-        #         df_train, center="centralized", split="train", global_max_time=global_max_time
-        #     )
-        #     df_test_stacked = self._stack_data(
-        #         df_test, center="centralized", split="test", global_max_time=global_max_time
-        #     )
-
-        #     for center, df_center_test in center_test_dfs.items():
-        #         per_center[center] = {
-        #             "test": self._stack_data(
-        #                 df_center_test,
-        #                 center=f"centralized_{center}",
-        #                 split="test",
-        #                 global_max_time=global_max_time,
-        #             )
-        #         }
-
-        #     return {
-        #         "global": {"train": df_train_stacked, "val": None, "test": df_test_stacked},
-        #         "per_center": per_center,
-        #     }
 
         # Random Survival Forest (RSF) and DeepSurv models
         if self.config.model.lower() in ["rsf", "deepsurv"]:
@@ -642,11 +598,32 @@ class DatasetManager:
             self.log_and_print(
                 f"[Centralized] Pre-split validation → "
                 f"df_train: {len(df_train)} samples, {df_train['event'].sum()} events, "
-                f"time range=[{df_train['time'].min():.2f}, {df_train['time'].max():.2f}], "
-                f"feature_0 (age) range=[{df_train['feature_0'].min():.2f}, {df_train['feature_0'].max():.2f}]"
+                f"time range=[{df_train['time'].min():.2f}, {df_train['time'].max():.2f}]"
             )
             
+            # IMPORTANT: Split FIRST, normalize AFTER to avoid data leakage
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center=0)
+            
+            # NOW compute normalization from training split ONLY
+            age_mean = df_train_split["feature_0"].mean()
+            age_std = df_train_split["feature_0"].std()
+            if age_std == 0:
+                age_std = 1.0
+
+            # Apply normalization to train_split, val, test (global), and per-center test
+            df_train_split["feature_0"] = (df_train_split["feature_0"] - age_mean) / age_std
+            df_val["feature_0"] = (df_val["feature_0"] - age_mean) / age_std
+            df_test["feature_0"] = (df_test["feature_0"] - age_mean) / age_std
+            
+            # Also normalize per-center test data with same stats
+            for center in center_test_dfs.keys():
+                center_test_dfs[center] = center_test_dfs[center].copy()
+                center_test_dfs[center]["feature_0"] = (center_test_dfs[center]["feature_0"] - age_mean) / age_std
+
+            self.log_and_print(
+                f"[Centralized] Normalized feature_0 (age) using train_split stats: "
+                f"mean={age_mean:.2f}, std={age_std:.2f}"
+            )
 
             self.log_and_print(
                 "[Centralized] Combined dataset sizes → "
