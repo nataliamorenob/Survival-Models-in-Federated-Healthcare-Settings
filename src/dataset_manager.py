@@ -492,14 +492,6 @@ class DatasetManager:
                 f"mean={age_mean:.2f}, std={age_std:.2f}"
             )
             
-            # Log the random state being used
-            split_seed = self.config.random_state + int(center)
-            self.log_and_print(
-                f"[Local] Using split seed: {split_seed} (base_seed={self.config.random_state} + center={center})"
-            )
-            
-            df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
-            
             # Log post-split statistics
             self.log_and_print(
                 f"[Local] Post-split → "
