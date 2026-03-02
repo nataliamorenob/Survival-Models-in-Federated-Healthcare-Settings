@@ -468,7 +468,59 @@ class DatasetManager:
         #     return {"train": df_train_stacked, "val": None, "test": df_test_stacked}
 
         if self.config.model.lower() in ["rsf", "deepsurv"]:
+            # Log pre-split statistics for debugging
+            self.log_and_print(
+                f"[Local] Pre-split data for center {center} → "
+                f"train: {len(df_train)} samples, {df_train['event'].sum()} events, "
+                f"time range=[{df_train['time'].min():.2f}, {df_train['time'].max():.2f}], "
+                f"test: {len(df_test)} samples, {df_test['event'].sum()} events"
+            )
+            
+            # Log the random state being used
+            split_seed = self.config.random_state + int(center)
+            self.log_and_print(
+                f"[Local] Using split seed: {split_seed} (base_seed={self.config.random_state} + center={center})"
+            )
+            
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
+            
+            # Log post-split statistics
+            self.log_and_print(
+                f"[Local] Post-split → "
+                f"train: {len(df_train_split)} samples ({df_train_split['event'].sum()} events), "
+                f"val: {len(df_val)} samples ({df_val['event'].sum()} events), "
+                f"train time range=[{df_train_split['time'].min():.2f}, {df_train_split['time'].max():.2f}]"
+            )
+            
+            # Validation: Check for degenerate splits
+            train_event_rate = df_train_split['event'].sum() / len(df_train_split)
+            val_event_rate = df_val['event'].sum() / len(df_val)
+            overall_event_rate = df_train['event'].sum() / len(df_train)
+            
+            # Warn if train/val event rates differ significantly from overall
+            if abs(train_event_rate - overall_event_rate) > 0.15:
+                self.log_and_print(
+                    f"[Local] WARNING: Train event rate ({train_event_rate:.3f}) differs significantly "
+                    f"from overall ({overall_event_rate:.3f}). Split may be suboptimal!",
+                    "warning"
+                )
+            
+            if abs(val_event_rate - overall_event_rate) > 0.15:
+                self.log_and_print(
+                    f"[Local] WARNING: Val event rate ({val_event_rate:.3f}) differs significantly "
+                    f"from overall ({overall_event_rate:.3f}). Split may be suboptimal!",
+                    "warning"
+                )
+            
+            # Check if train set has reasonable time coverage
+            train_time_coverage = (df_train_split['time'].max() - df_train_split['time'].min()) / \
+                                   (df_train['time'].max() - df_train['time'].min())
+            if train_time_coverage < 0.7:
+                self.log_and_print(
+                    f"[Local] WARNING: Train set covers only {train_time_coverage:.1%} of time range. "
+                    f"Model may not generalize well to test set!",
+                    "warning"
+                )
 
             feature_cols = [c for c in df_train.columns if c.startswith("feature_")]
             X_train = df_train_split[feature_cols].values
