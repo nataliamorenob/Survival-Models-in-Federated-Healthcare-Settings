@@ -463,15 +463,15 @@ def main(config: Config):
 
 if __name__ == "__main__":
     # FEDERATED DEEPSURV TRAINING (Local Risk Set Approximation):
-    user_config = Config(
-        model="DeepSurv",
-        centers=[0, 1, 2],
-        training_mode="federated",
-        num_clients=3,
-        num_rounds=40,
-        num_epochs=50,  # Local epochs per round
-        strategy="FedAvg"  # FedAdam, FedProx and FedAvg available for DeepSurv
-    )
+    # user_config = Config(
+    #     model="DeepSurv",
+    #     centers=[0, 1, 2],
+    #     training_mode="federated",
+    #     num_clients=3,
+    #     num_rounds=40,
+    #     num_epochs=50,  # Local epochs per round
+    #     strategy="FedAvg"  # FedAdam, FedProx and FedAvg available for DeepSurv
+    # )
 
     # FEDERATED RSF TRAINING:
     # user_config = Config(
@@ -515,12 +515,11 @@ if __name__ == "__main__":
     # )
 
     # LOCAL TRAINING DEEPSURV:
-    # user_config = Config(
-    #     model="DeepSurv",
-    #     centers=[4],
-    #     training_mode="local",
-    #     num_clients=1,
-    #     num_epochs=750,
-    #     eval_grid_mode="global"  # or "client"
-    # )
+    user_config = Config(
+        model="DeepSurv",
+        centers=[0],
+        training_mode="local",
+        num_clients=1,
+        num_epochs=750,
+    )
     main(user_config)

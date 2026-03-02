@@ -6,7 +6,7 @@ from pathlib import Path
 # ---------------------------------------------------------
 RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps")
 
-N_RUNS = 20
+N_RUNS = 6
 
 OUTPUT_CLIENT_CSV = RESULTS_DIR / "summary_per_client_mean_std.csv"
 OUTPUT_GLOBAL_CSV = RESULTS_DIR / "summary_global_mean_std.csv"
