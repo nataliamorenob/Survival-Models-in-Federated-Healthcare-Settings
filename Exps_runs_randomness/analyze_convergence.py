@@ -445,75 +445,74 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
     
     diff_summary = pd.DataFrame(results)
     
-    # Mark combined convergence: both temporal AND stochastic at the SAME round
-    diff_summary["combined_converged_window"] = (
-        diff_summary["converged"]
+    # Get round-level metric values from original data
+    round_means = df_clean.groupby("round")[metric_col].mean()
+    
+    # IMPROVED APPROACH: Find rounds where stochastic stability is achieved,
+    # then validate that actual performance has truly plateaued
+    
+    # Stage 1: Identify when stochastic stability first appears (low variance)
+    diff_summary["stochastic_stable_window"] = (
+        diff_summary["stochastic_stable"]
         .rolling(window=k)
         .sum() == k
     )
     
-    # NEW APPROACH: Find rounds where BOTH criteria are simultaneously met,
-    # then validate that actual performance remains stable afterward
-    combined_candidates = diff_summary.loc[
-        diff_summary["combined_converged_window"] == True, "round"
-    ].values
+    # Stage 2: Identify temporal stability windows
+    diff_summary["temporal_stable_window"] = (
+        diff_summary["temporal_converged"]
+        .rolling(window=k)
+        .sum() == k
+    )
     
+    # Get candidates from temporal convergence (first stage)
+    temporal_convergence_round = diff_summary.loc[
+        diff_summary["temporal_stable_window"] == True, "round"
+    ].min()
+    
+    # Get candidates from stochastic convergence (second stage)
+    stochastic_convergence_round = diff_summary.loc[
+        diff_summary["stochastic_stable_window"] == True, "round"
+    ].min()
+    
+    # VALIDATION: Find first round where performance truly stabilizes
+    # Start checking from when stochastic stability is first achieved
     optimal_convergence_round = np.nan
-    temporal_convergence_round = np.nan
-    stochastic_convergence_round = np.nan
     
-    if len(combined_candidates) > 0:
-        # Get round-level metric values from original data
-        round_means = df_clean.groupby("round")[metric_col].mean()
+    if pd.notna(stochastic_convergence_round):
+        # Start from stochastic convergence point
+        start_idx = diff_summary[diff_summary["round"] == stochastic_convergence_round].index[0]
         
-        # For each candidate, check if performance stabilizes afterward
-        for candidate in combined_candidates:
-            candidate_idx = diff_summary[diff_summary["round"] == candidate].index[0]
+        # Check each round from this point forward
+        for idx in range(start_idx, len(diff_summary)):
+            candidate_round = diff_summary.loc[idx, "round"]
+            perf_at_candidate = round_means.loc[candidate_round]
             
-            # Get mean performance at this candidate round
-            perf_at_candidate = round_means.loc[candidate]
-            
-            # Get subsequent rounds (at least 5 rounds ahead if available)
-            subsequent_rounds = diff_summary.loc[candidate_idx + 1:]
-            if len(subsequent_rounds) < 3:
-                # Near end of training - accept this as convergence
-                optimal_convergence_round = candidate
+            # Get future rounds (next 5-10 rounds)
+            future_indices = range(idx + 1, min(idx + 11, len(diff_summary)))
+            if len(future_indices) < 3:
+                # Near end - accept current round
+                optimal_convergence_round = candidate_round
                 break
             
-            # Check performance in next 5-10 rounds (or until end)
-            window_size = min(10, len(subsequent_rounds))
-            future_rounds = subsequent_rounds.head(window_size)["round"].values
+            future_rounds = diff_summary.loc[future_indices, "round"].values
             future_performance = round_means.loc[future_rounds]
             
-            # Check: is mean future performance significantly higher?
+            # Calculate mean future performance
             mean_future = future_performance.mean()
             improvement = mean_future - perf_at_candidate
             
-            # Accept if future performance doesn't exceed by more than practical threshold
-            if improvement <= practical_threshold:
-                optimal_convergence_round = candidate
+            # Also check: are we in a region of low CV and small changes?
+            current_cv = diff_summary.loc[idx, "cv"]
+            future_cvs = diff_summary.loc[future_indices, "cv"]
+            mean_future_cv = future_cvs.mean()
+            
+            # Accept if:
+            # 1. Future performance doesn't improve by > 0.5%
+            # 2. CV remains low (< 15%)
+            if improvement <= practical_threshold and mean_future_cv < max_cv:
+                optimal_convergence_round = candidate_round
                 break
-        
-        # Also report the first occurrence of each stage for comparison
-        # Stage 1: temporal stability
-        diff_summary["temporal_stable_window"] = (
-            diff_summary["temporal_converged"]
-            .rolling(window=k)
-            .sum() == k
-        )
-        temporal_convergence_round = diff_summary.loc[
-            diff_summary["temporal_stable_window"] == True, "round"
-        ].min()
-        
-        # Stage 2: stochastic stability
-        diff_summary["stochastic_stable_window"] = (
-            diff_summary["stochastic_stable"]
-            .rolling(window=k)
-            .sum() == k
-        )
-        stochastic_convergence_round = diff_summary.loc[
-            diff_summary["stochastic_stable_window"] == True, "round"
-        ].min()
     
     # Alternative: Find when oscillation becomes stable with low variance
     diff_summary["oscillation_window"] = (
