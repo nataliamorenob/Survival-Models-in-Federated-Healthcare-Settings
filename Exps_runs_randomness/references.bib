@@ -232,6 +232,7 @@
   booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
   volume={32},
   number={1},
+  pages={3207--3214},
   year={2018}
 }
 
@@ -239,9 +240,28 @@
   title={Unreproducible research is reproducible},
   author={Bouthillier, Xavier and Laurent, C{\'e}sar and Vincent, Pascal},
   booktitle={International Conference on Machine Learning},
+  volume={36},
   pages={725--734},
   year={2019},
   organization={PMLR}
+}
+
+@article{raschka2018model,
+  title={Model evaluation, model selection, and algorithm selection in machine learning},
+  author={Raschka, Sebastian},
+  journal={arXiv preprint arXiv:1811.12808},
+  year={2018}
+}
+
+@article{bischl2012resampling,
+  title={Resampling methods for meta-model validation with recommendations for evolutionary computation},
+  author={Bischl, Bernd and Mersmann, Olaf and Trautmann, Heike and Weihs, Claus},
+  journal={Evolutionary Computation},
+  volume={20},
+  number={2},
+  pages={249--275},
+  year={2012},
+  publisher={MIT Press}
 }
 
 @article{demsar2006statistical,
@@ -266,7 +286,51 @@
 }
 
 % ============================================================================
-% SECTION 7: Survival Analysis and Medical Statistics
+% SECTION 7: Coefficient of Variation and Stochastic Stability
+% ============================================================================
+
+@article{reed2002coefficient,
+  title={Use of coefficient of variation in assessing variability of quantitative assays},
+  author={Reed, Gregory F and Lynn, Fran and Meade, Bruce D},
+  journal={Clinical and Diagnostic Laboratory Immunology},
+  volume={9},
+  number={6},
+  pages={1235--1239},
+  year={2002},
+  publisher={American Society for Microbiology}
+}
+
+@book{evans1996straightforward,
+  title={Straightforward Statistics for the Behavioral Sciences},
+  author={Evans, James D},
+  year={1996},
+  publisher={Brooks/Cole Publishing},
+  address={Pacific Grove, CA}
+}
+
+% ============================================================================
+% SECTION 8: Federated Learning with Variance Considerations
+% ============================================================================
+
+@inproceedings{karimireddy2020scaffold,
+  title={SCAFFOLD: Stochastic controlled averaging for federated learning},
+  author={Karimireddy, Sai Praneeth and Kale, Satyen and Mohri, Mehryar and Reddi, Sashank and Stich, Sebastian and Suresh, Ananda Theertha},
+  booktitle={International Conference on Machine Learning},
+  volume={119},
+  pages={5132--5143},
+  year={2020},
+  organization={PMLR}
+}
+
+@inproceedings{reddi2021adaptive,
+  title={Adaptive federated optimization},
+  author={Reddi, Sashank J and Charles, Zachary and Zaheer, Manzil and Garrett, Zachary and Rush, Keith and Kone{\v{c}}n{\`y}, Jakub and Kumar, Sanjiv and McMahan, H Brendan},
+  booktitle={International Conference on Learning Representations},
+  year={2021}
+}
+
+% ============================================================================
+% SECTION 9: Survival Analysis and Medical Statistics
 % ============================================================================
 
 @article{harrington1982class,
@@ -300,11 +364,31 @@
 % 1. Paired t-test: \cite{box2005statistics, bland1995calculating}
 % 2. Practical significance: \cite{sullivan2012effect, kirk1996practical}
 % 3. Early stopping (k=3): \cite{prechelt1998early}
-% 4. FL convergence theory: \cite{mcmahan2017communication, kairouz2021advances}
-% 5. Heterogeneity effects: \cite{li2020federated, zhao2018federated}
-% 6. Fairness (worst-case): \cite{li2019fair, mohri2019agnostic}
-% 7. Oscillation patterns: \cite{khaled2020tighter, haddadpour2019convergence}
-% 8. Sample size (N=6): \cite{henderson2018deep, bouthillier2019unreproducible}
-% 9. Survival analysis thresholds: \cite{pencina2011extensions}
+% 4. TWO-STAGE CONVERGENCE:
+%    - Overall approach: \cite{henderson2018deep, raschka2018model}
+%    - Temporal convergence: \cite{prechelt1998early}
+%    - Stochastic stability: \cite{bouthillier2019unreproducible, bischl2012resampling}
+%    - CV < 15% threshold: \cite{reed2002coefficient, evans1996straightforward}
+% 5. FL convergence theory: \cite{mcmahan2017communication, kairouz2021advances}
+% 6. FL variance issues: \cite{karimireddy2020scaffold, reddi2021adaptive}
+% 7. Heterogeneity effects: \cite{li2020federated, zhao2018federated}
+% 8. Fairness (worst-case): \cite{li2019fair, mohri2019agnostic}
+% 9. Oscillation patterns: \cite{khaled2020tighter, haddadpour2019convergence}
+% 10. Sample size (N=10): \cite{henderson2018deep, bouthillier2019unreproducible}
+% 11. Survival analysis thresholds: \cite{pencina2011extensions}
 %
+% ============================================================================
+% EXAMPLE CITATION for TWO-STAGE METHOD:
+%
+% "We employed a two-stage convergence criterion combining temporal stability 
+% (when improvements plateau) and stochastic stability (when variance across 
+% runs is acceptably low). Stage 1 used paired t-tests to detect when 
+% round-to-round changes fell below 0.5% for three consecutive rounds 
+% \cite{box2005statistics, prechelt1998early}. However, temporal convergence 
+% alone does not ensure reproducibility \cite{henderson2018deep, reddi2021adaptive}. 
+% Therefore, Stage 2 validated that coefficient of variation across runs was 
+% below 15%, a standard threshold for low variability in experimental sciences 
+% \cite{reed2002coefficient, evans1996straightforward}. This two-stage approach 
+% follows best practices for ML model evaluation \cite{raschka2018model, 
+% bischl2012resampling, bouthillier2019unreproducible}."
 % ============================================================================

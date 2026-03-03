@@ -117,29 +117,29 @@
 
 
 #Remote
-"""
-Federated Learning Convergence Analysis
+# """
+# Federated Learning Convergence Analysis
 
-This script analyzes convergence patterns in federated learning experiments using
-statistically rigorous methods appropriate for FL settings.
+# This script analyzes convergence patterns in federated learning experiments using
+# statistically rigorous methods appropriate for FL settings.
 
-Methodology justification and citations: see CONVERGENCE_ANALYSIS_JUSTIFICATION.md
+# Methodology justification and citations: see CONVERGENCE_ANALYSIS_JUSTIFICATION.md
 
-Key methodological choices:
-- Paired t-tests for round-to-round comparisons (Box et al., 2005)
-- Practical significance threshold of 0.5% (Sullivan & Feinn, 2012)
-- k=3 consecutive stable rounds requirement (Prechelt, 1998)
-- Multiple metrics: global, worst-case, heterogeneity (Li et al., 2019; Zhao et al., 2018)
-- Oscillation patterns as convergence signal (Khaled et al., 2020)
+# Key methodological choices:
+# - Paired t-tests for round-to-round comparisons (Box et al., 2005)
+# - Practical significance threshold of 0.5% (Sullivan & Feinn, 2012)
+# - k=3 consecutive stable rounds requirement (Prechelt, 1998)
+# - Multiple metrics: global, worst-case, heterogeneity (Li et al., 2019; Zhao et al., 2018)
+# - Oscillation patterns as convergence signal (Khaled et al., 2020)
 
-For complete citations, see: references.bib
-"""
+# For complete citations, see: references.bib
+# """
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import os
-from scipy.stats import t
+# import pandas as pd
+# import numpy as np
+# import matplotlib.pyplot as plt
+# import os
+# from scipy.stats import t
 
 # # ==============================
 # # 1. LOAD ALL RUN FILES
@@ -364,9 +364,12 @@ print(f"\nN runs: {N}, df: {df_degrees}, t_critical: {t_critical:.3f}")
 # ==============================
 
 def analyze_convergence(df_clean, metric_col, N, t_critical, k=3, 
-                        practical_threshold=0.005, max_degradation=0.01):
+                        practical_threshold=0.005, max_degradation=0.01, max_cv=0.15):
     """
-    Analyze convergence for a given metric using practical significance.
+    Two-stage convergence analysis: temporal stability + stochastic stability.
+    
+    Stage 1 (Temporal): Detects when round-to-round improvements become negligible
+    Stage 2 (Stochastic): Validates reproducibility across random seeds
     
     Args:
         df_clean: DataFrame with run_id, round, and metric
@@ -376,6 +379,12 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
         k: Number of consecutive stable rounds required
         practical_threshold: Practical significance threshold (e.g., 0.5% improvement)
         max_degradation: Maximum acceptable degradation (e.g., 1%)
+        max_cv: Maximum coefficient of variation for stochastic stability (default: 0.15 = 15%)
+        
+    Citations:
+        - Temporal: Box et al. (2005), Sullivan & Feinn (2012), Prechelt (1998)
+        - Stochastic: Henderson et al. (2018), Bouthillier et al. (2019)
+        - CV threshold: Reed et al. (2002) - CV<15% indicates low variability
     """
     pivot_df = df_clean.pivot(index="round", columns="run_id", values=metric_col)
     
@@ -386,7 +395,7 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
         r_prev = rounds[i - 1]
         r_curr = rounds[i]
         
-        # Paired differences
+        # Paired differences for temporal convergence
         diffs = pivot_df.loc[r_curr] - pivot_df.loc[r_prev]
         
         mean_diff = diffs.mean()
@@ -396,18 +405,11 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
         ci_lower = mean_diff - t_critical * se_diff
         ci_upper = mean_diff + t_critical * se_diff
         
-        # IMPROVED CONVERGENCE CRITERIA:
-        # Option 1: Strict - CI entirely within practical threshold
-        strict_converged = (abs(ci_lower) < practical_threshold) and (abs(ci_upper) < practical_threshold)
-        
-        # Option 2: Practical - Mean change is small AND not significantly improving
+        # STAGE 1: TEMPORAL CONVERGENCE
+        # Mean change is small AND not significantly improving
         practical_converged = (abs(mean_diff) < practical_threshold) and (ci_lower < practical_threshold)
-        
-        # Option 3: No degradation - CI doesn't suggest significant decline
         not_degrading = ci_lower > -max_degradation
-        
-        # Combined: Use practical convergence as main criterion
-        converged = practical_converged and not_degrading
+        temporal_converged = practical_converged and not_degrading
         
         # Flag significant improvement
         significantly_improving = ci_lower > practical_threshold
@@ -415,28 +417,54 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
         # Flag oscillation (CI crosses zero with small magnitude)
         oscillating = (ci_lower < 0) and (ci_upper > 0) and (abs(mean_diff) < practical_threshold)
         
+        # STAGE 2: STOCHASTIC STABILITY
+        # Calculate coefficient of variation (CV) across runs at current round
+        values_curr = pivot_df.loc[r_curr].values
+        mean_val = values_curr.mean()
+        std_val = values_curr.std(ddof=1)
+        cv = abs(std_val / mean_val) if abs(mean_val) > 1e-6 else np.inf
+        
+        # Stochastic stability: CV below threshold
+        stochastic_stable = cv < max_cv
+        
+        # COMBINED CRITERION: Both temporal AND stochastic
+        fully_converged = temporal_converged and stochastic_stable
+        
         results.append({
             "round": r_curr,
             "mean_diff": mean_diff,
             "ci_lower": ci_lower,
             "ci_upper": ci_upper,
-            "converged": converged,
-            "strict_converged": strict_converged,
+            "cv": cv,
+            "temporal_converged": temporal_converged,
+            "stochastic_stable": stochastic_stable,
+            "converged": fully_converged,  # Combined criterion
             "significantly_improving": significantly_improving,
             "oscillating": oscillating
         })
     
     diff_summary = pd.DataFrame(results)
     
-    # Find k consecutive converged rounds
-    diff_summary["stable_window"] = (
+    # STAGE 1: Find k consecutive temporally converged rounds
+    diff_summary["temporal_stable_window"] = (
+        diff_summary["temporal_converged"]
+        .rolling(window=k)
+        .sum() == k
+    )
+    
+    temporal_convergence_round = diff_summary.loc[
+        diff_summary["temporal_stable_window"] == True, "round"
+    ].min()
+    
+    # STAGE 2: Find k consecutive fully converged rounds (temporal + stochastic)
+    diff_summary["optimal_stable_window"] = (
         diff_summary["converged"]
         .rolling(window=k)
         .sum() == k
     )
     
-    convergence_round = diff_summary.loc[
-        diff_summary["stable_window"] == True, "round"
+    optimal_convergence_round = diff_summary.loc[
+        diff_summary["optimal_stable_window"] == True, "round"
     ].min()
     
     # Alternative: Find when oscillation becomes stable
@@ -450,7 +478,7 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
         diff_summary["oscillation_window"] == True, "round"
     ].min()
     
-    return diff_summary, convergence_round, oscillation_convergence
+    return diff_summary, temporal_convergence_round, optimal_convergence_round, oscillation_convergence
 
 # Analyze all three metrics
 print("\n" + "="*60)
@@ -467,22 +495,32 @@ for metric_col, metric_name in metrics_to_analyze:
     print(f"\n{metric_name}:")
     print("-" * 80)
     
-    diff_summary, conv_round, osc_round = analyze_convergence(
+    diff_summary, temporal_conv_round, optimal_conv_round, osc_round = analyze_convergence(
         df_clean, metric_col, N, t_critical, k=3, 
         practical_threshold=0.005, max_degradation=0.01
     )
     
     # Show key columns
-    display_cols = ["round", "mean_diff", "ci_lower", "ci_upper", 
-                    "converged", "significantly_improving", "oscillating"]
+    display_cols = ["round", "mean_diff", "ci_lower", "ci_upper", "cv",
+                    "temporal_converged", "stochastic_stable", "converged", 
+                    "significantly_improving", "oscillating"]
     print(diff_summary[display_cols].to_string())
     
     print("\n" + "-" * 80)
-    if pd.notna(conv_round):
-        print(f"✓ PRACTICAL CONVERGENCE at round: {conv_round}")
+    
+    # STAGE 1: Temporal convergence
+    if pd.notna(temporal_conv_round):
+        print(f"✓ TEMPORAL CONVERGENCE (Stage 1) at round: {temporal_conv_round}")
         print(f"  (3 consecutive rounds with |change| < 0.5% and not significantly improving)")
     else:
-        print("✗ No practical convergence detected")
+        print("✗ No temporal convergence detected")
+    
+    # STAGE 2: Optimal convergence (temporal + stochastic)
+    if pd.notna(optimal_conv_round):
+        print(f"✓ OPTIMAL CONVERGENCE (Stage 2) at round: {optimal_conv_round}")
+        print(f"  (3 consecutive rounds with temporal stability AND CV < 15%)")
+    else:
+        print("✗ No optimal convergence detected (high variance persists)")
     
     if pd.notna(osc_round):
         print(f"✓ STABLE OSCILLATION at round: {osc_round}")
@@ -496,7 +534,9 @@ for metric_col, metric_name in metrics_to_analyze:
         print(f"\nPost-round-10 behavior:")
         print(f"  - Mean absolute change: {post_10['mean_diff'].abs().mean():.6f}")
         print(f"  - Max absolute change: {post_10['mean_diff'].abs().max():.6f}")
+        print(f"  - Mean CV: {post_10['cv'].mean():.4f} (Std: {post_10['cv'].std():.4f})")
         print(f"  - Rounds with |change| < 0.005: {(post_10['mean_diff'].abs() < 0.005).sum()}/{len(post_10)}")
+        print(f"  - Rounds with CV < 0.15: {(post_10['cv'] < 0.15).sum()}/{len(post_10)}")
         print(f"  - Rounds oscillating: {post_10['oscillating'].sum()}/{len(post_10)}")
 
 # ==============================
@@ -513,7 +553,7 @@ round_summary.columns = ["round", "mean", "std"]
 round_summary["se"] = round_summary["std"] / np.sqrt(N)
 
 # Get convergence info
-diff_global, conv_global, osc_global = analyze_convergence(
+diff_global, temporal_conv_global, optimal_conv_global, osc_global = analyze_convergence(
     df_clean, "c_index_global_avg", N, t_critical, k=3
 )
 
@@ -527,11 +567,14 @@ axes[0, 0].fill_between(
     label="95% CI"
 )
 
-# Mark convergence region
-if pd.notna(conv_global):
-    axes[0, 0].axvline(x=conv_global, color='green', linestyle='--', 
-                       linewidth=2, label=f'Convergence (round {conv_global})')
-    axes[0, 0].axvspan(conv_global, round_summary["round"].max(), 
+# Mark convergence regions
+if pd.notna(temporal_conv_global):
+    axes[0, 0].axvline(x=temporal_conv_global, color='blue', linestyle=':', 
+                       linewidth=2, label=f'Temporal conv (round {temporal_conv_global})')
+if pd.notna(optimal_conv_global):
+    axes[0, 0].axvline(x=optimal_conv_global, color='green', linestyle='--', 
+                       linewidth=2, label=f'Optimal conv (round {optimal_conv_global})')
+    axes[0, 0].axvspan(optimal_conv_global, round_summary["round"].max(), 
                        alpha=0.1, color='green')
 elif pd.notna(osc_global):
     axes[0, 0].axvline(x=osc_global, color='orange', linestyle='--', 
@@ -581,7 +624,7 @@ worst_summary = df_clean.groupby("round").agg({
 worst_summary.columns = ["round", "mean", "std"]
 worst_summary["se"] = worst_summary["std"] / np.sqrt(N)
 
-diff_worst, conv_worst, osc_worst = analyze_convergence(
+diff_worst, temporal_conv_worst, optimal_conv_worst, osc_worst = analyze_convergence(
     df_clean, "c_index_worst", N, t_critical, k=3
 )
 
@@ -597,10 +640,13 @@ axes[1, 0].fill_between(
 )
 
 # Mark convergence
-if pd.notna(conv_worst):
-    axes[1, 0].axvline(x=conv_worst, color='green', linestyle='--', 
-                       linewidth=2, label=f'Convergence (round {conv_worst})')
-    axes[1, 0].axvspan(conv_worst, worst_summary["round"].max(), 
+if pd.notna(temporal_conv_worst):
+    axes[1, 0].axvline(x=temporal_conv_worst, color='blue', linestyle=':', 
+                       linewidth=2, label=f'Temporal conv (round {temporal_conv_worst})')
+if pd.notna(optimal_conv_worst):
+    axes[1, 0].axvline(x=optimal_conv_worst, color='green', linestyle='--', 
+                       linewidth=2, label=f'Optimal conv (round {optimal_conv_worst})')
+    axes[1, 0].axvspan(optimal_conv_worst, worst_summary["round"].max(), 
                        alpha=0.1, color='green')
 
 axes[1, 0].set_xlabel("Round", fontsize=12)
@@ -616,7 +662,7 @@ var_summary = df_clean.groupby("round").agg({
 var_summary.columns = ["round", "mean", "std"]
 var_summary["se"] = var_summary["std"] / np.sqrt(N)
 
-diff_var, conv_var, osc_var = analyze_convergence(
+diff_var, temporal_conv_var, optimal_conv_var, osc_var = analyze_convergence(
     df_clean, "c_index_std_across_clients", N, t_critical, k=3
 )
 
@@ -632,10 +678,15 @@ axes[1, 1].fill_between(
 )
 
 # Mark if heterogeneity stabilizes
-if pd.notna(conv_var) or pd.notna(osc_var):
-    conv_point = conv_var if pd.notna(conv_var) else osc_var
-    axes[1, 1].axvline(x=conv_point, color='green', linestyle='--', 
-                       linewidth=2, label=f'Stable (round {conv_point})')
+if pd.notna(temporal_conv_var):
+    axes[1, 1].axvline(x=temporal_conv_var, color='blue', linestyle=':', 
+                       linewidth=2, label=f'Temporal conv (round {temporal_conv_var})')
+if pd.notna(optimal_conv_var):
+    axes[1, 1].axvline(x=optimal_conv_var, color='green', linestyle='--', 
+                       linewidth=2, label=f'Optimal conv (round {optimal_conv_var})')
+elif pd.notna(osc_var):
+    axes[1, 1].axvline(x=osc_var, color='orange', linestyle='--', 
+                       linewidth=2, label=f'Stable (round {osc_var})')
 
 axes[1, 1].set_xlabel("Round", fontsize=12)
 axes[1, 1].set_ylabel("Std Dev of C-index Across Clients", fontsize=12)
@@ -671,10 +722,13 @@ for client_id in df_all["client_id"].unique():
             linewidth=2.5, color=f'C{client_id}')
 
 # Mark convergence region if detected
-if pd.notna(conv_global):
-    ax.axvline(x=conv_global, color='green', linestyle='--', 
-               linewidth=2, alpha=0.7, label=f'Global convergence')
-    ax.axvspan(conv_global, df_all["round"].max(), 
+if pd.notna(temporal_conv_global):
+    ax.axvline(x=temporal_conv_global, color='blue', linestyle=':', 
+               linewidth=2, alpha=0.7, label=f'Temporal convergence')
+if pd.notna(optimal_conv_global):
+    ax.axvline(x=optimal_conv_global, color='green', linestyle='--', 
+               linewidth=2, alpha=0.7, label=f'Optimal convergence')
+    ax.axvspan(optimal_conv_global, df_all["round"].max(), 
                alpha=0.05, color='green')
 
 ax.set_xlabel("Round", fontsize=12)
@@ -700,7 +754,7 @@ summary_data = []
 
 # Re-run analyses to collect summary
 for metric_col, metric_name in metrics_to_analyze:
-    diff_summary, conv_round, osc_round = analyze_convergence(
+    diff_summary, temporal_conv_round, optimal_conv_round, osc_round = analyze_convergence(
         df_clean, metric_col, N, t_critical, k=3
     )
     
@@ -708,15 +762,19 @@ for metric_col, metric_name in metrics_to_analyze:
     post_10 = diff_summary[diff_summary["round"] >= 10]
     mean_abs_change = post_10['mean_diff'].abs().mean() if len(post_10) > 0 else np.nan
     max_abs_change = post_10['mean_diff'].abs().max() if len(post_10) > 0 else np.nan
+    mean_cv = post_10['cv'].mean() if len(post_10) > 0 else np.nan
     pct_small_changes = (post_10['mean_diff'].abs() < 0.005).mean() * 100 if len(post_10) > 0 else 0
+    pct_low_cv = (post_10['cv'] < 0.15).mean() * 100 if len(post_10) > 0 else 0
     
     summary_data.append({
         'Metric': metric_name.replace('C-index', '').strip(),
-        'Convergence Round': int(conv_round) if pd.notna(conv_round) else 'Not detected',
-        'Oscillation Round': int(osc_round) if pd.notna(osc_round) else 'Not detected',
+        'Temporal Conv': int(temporal_conv_round) if pd.notna(temporal_conv_round) else 'Not detected',
+        'Optimal Conv': int(optimal_conv_round) if pd.notna(optimal_conv_round) else 'Not detected',
+        'Oscillation': int(osc_round) if pd.notna(osc_round) else 'Not detected',
         'Mean |Δ| (post-10)': f'{mean_abs_change:.6f}' if not np.isnan(mean_abs_change) else 'N/A',
-        'Max |Δ| (post-10)': f'{max_abs_change:.6f}' if not np.isnan(max_abs_change) else 'N/A',
-        '% rounds |Δ|<0.5%': f'{pct_small_changes:.1f}%'
+        'Mean CV (post-10)': f'{mean_cv:.4f}' if not np.isnan(mean_cv) else 'N/A',
+        '% |Δ|<0.5%': f'{pct_small_changes:.1f}%',
+        '% CV<15%': f'{pct_low_cv:.1f}%'
     })
 
 summary_df = pd.DataFrame(summary_data)
@@ -725,13 +783,23 @@ print("\n" + summary_df.to_string(index=False))
 print("\n" + "="*80)
 print("INTERPRETATION:")
 print("="*80)
-print("• Convergence Round: First round where model shows 3 consecutive rounds")
-print("  of practical convergence (|change| < 0.5% and not significantly improving)")
-print("\n• Oscillation Round: First round where model oscillates around zero")
-print("  for 3 consecutive rounds (typical late-stage FL behavior)")
-print("\n• Mean |Δ| (post-10): Average absolute change per round after round 10")
-print("\n• % rounds |Δ|<0.5%: Percentage of rounds with practically negligible change")
+print("TWO-STAGE CONVERGENCE CRITERION:")
+print("\n• Stage 1 - Temporal Convergence: First round where training stabilizes")
+print("  (3 consecutive rounds with |change| < 0.5% and not significantly improving)")
+print("  → Indicates when improvements have plateaued")
+print("\n• Stage 2 - Optimal Convergence: First round with both temporal stability AND")
+print("  low variance (CV < 15% across runs)")
+print("  → Recommended round for reporting results (stable + reproducible)")
+print("\n• Oscillation: Model oscillates around zero for 3 consecutive rounds")
+print("  (typical late-stage FL behavior)")
+print("\n• Mean CV (post-10): Average coefficient of variation (std/mean) after round 10")
+print("  CV < 15% indicates good reproducibility (Reed et al., 2002)")
 print("\n" + "="*80)
+print("\nREFERENCES:")
+print("- Henderson et al. (2018): Deep RL That Matters (variance in RL)")
+print("- Bouthillier et al. (2019): Accounting for Variance in ML Experiments")
+print("- Reed et al. (2002): CV < 15% threshold in experimental sciences")
+print("="*80)
 
 # Save summary to CSV
 summary_df.to_csv(os.path.join(base_path, "convergence_summary.csv"), index=False)
