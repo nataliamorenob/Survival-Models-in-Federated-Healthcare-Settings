@@ -9,7 +9,7 @@ RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_e
 #RESULTS_DIR = Path("/Users/nataliamorenoblasco/Desktop/Master_Thesis/Exps_runs_randomness")
 
 
-N_RUNS = 6
+N_RUNS = 10
 
 OUTPUT_CLIENT_CSV = RESULTS_DIR / "summary_per_client_mean_std_round10.csv"
 OUTPUT_GLOBAL_CSV = RESULTS_DIR / "summary_global_mean_std_round10.csv"
@@ -32,7 +32,7 @@ print("Loaded rows (all rounds):", len(df_all))
 # ---------------------------------------------------------
 # FILTER ONLY ROUND 10
 # ---------------------------------------------------------
-df_all = df_all[df_all["round"] == 4]
+df_all = df_all[df_all["round"] == 20]
 
 print("Rows after filtering round == 10:", len(df_all))
 print(df_all.head(), "\n")

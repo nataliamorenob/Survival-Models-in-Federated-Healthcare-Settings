@@ -255,7 +255,8 @@ def main(config: Config):
     # Random seeds to test randomness
     # Using well-tested seeds from ML research (42, 123, 456, 789, 1024, 2048)
     run_id = int(os.environ.get("RUN_ID", 0))
-    STABLE_SEEDS = [42, 123, 456, 789, 1024, 2048, 4096, 8192]
+    #STABLE_SEEDS = [42, 123, 456, 789, 1024, 2048, 4096, 8192]
+    STABLE_SEEDS = [42, 1337, 123, 456, 789, 1024, 8192, 777, 2026, 9999, 555]
     seed = STABLE_SEEDS[run_id] if run_id < len(STABLE_SEEDS) else 42 + run_id
 
     config.random_state = seed
@@ -470,7 +471,7 @@ if __name__ == "__main__":
         num_clients=3,
         num_rounds=40,
         num_epochs=50,  # Local epochs per round
-        strategy="FedAvg"  # FedAdam, FedProx and FedAvg available for DeepSurv
+        strategy="FedAdam"  # FedAdam, FedProx and FedAvg available for DeepSurv
     )
 
     # FEDERATED RSF TRAINING:

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-N_RUNS=6
+N_RUNS=10
 
 cd /scratch/project_2015651/Masters_thesis
 source venv/bin/activate

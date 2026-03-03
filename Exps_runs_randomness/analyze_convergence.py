@@ -149,11 +149,11 @@
 
 # all_dfs = []
 
-for i in range(1, 11):
-    file_path = os.path.join(base_path, f"run_{i}.csv")
-    df = pd.read_csv(file_path)
-    df["run_id"] = i
-    all_dfs.append(df)
+# for i in range(1, 11):
+#     file_path = os.path.join(base_path, f"run_{i}.csv")
+#     df = pd.read_csv(file_path)
+#     df["run_id"] = i
+#     all_dfs.append(df)
 
 # df_all = pd.concat(all_dfs, ignore_index=True)
 
