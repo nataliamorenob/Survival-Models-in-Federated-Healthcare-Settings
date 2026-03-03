@@ -149,11 +149,11 @@ from scipy.stats import t
 
 # all_dfs = []
 
-# for i in range(1, 7):
-#     file_path = os.path.join(base_path, f"run_{i}.csv")
-#     df = pd.read_csv(file_path)
-#     df["run_id"] = i
-#     all_dfs.append(df)
+for i in range(1, 11):
+    file_path = os.path.join(base_path, f"run_{i}.csv")
+    df = pd.read_csv(file_path)
+    df["run_id"] = i
+    all_dfs.append(df)
 
 # df_all = pd.concat(all_dfs, ignore_index=True)
 
@@ -305,7 +305,7 @@ from scipy.stats import t
 base_path = "/scratch/project_2015651/Masters_thesis/results_randomness_exps"
 
 all_dfs = []
-for i in range(1, 7):
+for i in range(1, 11):
     file_path = os.path.join(base_path, f"run_{i}.csv")
     df = pd.read_csv(file_path)
     df["run_id"] = i
