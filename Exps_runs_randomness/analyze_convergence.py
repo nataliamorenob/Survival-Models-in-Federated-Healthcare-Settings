@@ -456,18 +456,26 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
         diff_summary["temporal_stable_window"] == True, "round"
     ].min()
     
-    # STAGE 2: Find k consecutive fully converged rounds (temporal + stochastic)
-    diff_summary["optimal_stable_window"] = (
-        diff_summary["converged"]
+    # STAGE 2 - IMPROVED: Find k consecutive rounds with low CV AFTER temporal convergence
+    # This allows small fluctuations in temporal stability as long as variance is low
+    diff_summary["stochastic_stable_window"] = (
+        diff_summary["stochastic_stable"]
         .rolling(window=k)
         .sum() == k
     )
     
-    optimal_convergence_round = diff_summary.loc[
-        diff_summary["optimal_stable_window"] == True, "round"
+    stochastic_convergence_round = diff_summary.loc[
+        diff_summary["stochastic_stable_window"] == True, "round"
     ].min()
     
-    # Alternative: Find when oscillation becomes stable
+    # Optimal convergence: later of temporal or stochastic convergence
+    # (ensures BOTH conditions have been met)
+    if pd.notna(temporal_convergence_round) and pd.notna(stochastic_convergence_round):
+        optimal_convergence_round = max(temporal_convergence_round, stochastic_convergence_round)
+    else:
+        optimal_convergence_round = np.nan
+    
+    # Alternative: Find when oscillation becomes stable with low variance
     diff_summary["oscillation_window"] = (
         diff_summary["oscillating"]
         .rolling(window=k)
@@ -478,7 +486,17 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
         diff_summary["oscillation_window"] == True, "round"
     ].min()
     
-    return diff_summary, temporal_convergence_round, optimal_convergence_round, oscillation_convergence
+    # Oscillation-based optimal: oscillation + low CV
+    if pd.notna(oscillation_convergence):
+        # Check if CV is low around oscillation point
+        osc_idx = diff_summary[diff_summary["round"] == oscillation_convergence].index[0]
+        cv_at_osc = diff_summary.loc[osc_idx, "cv"]
+        oscillation_has_low_variance = cv_at_osc < max_cv
+    else:
+        oscillation_has_low_variance = False
+    
+    return (diff_summary, temporal_convergence_round, optimal_convergence_round, 
+            oscillation_convergence, stochastic_convergence_round, oscillation_has_low_variance)
 
 # Analyze all three metrics
 print("\n" + "="*60)
@@ -495,10 +513,14 @@ for metric_col, metric_name in metrics_to_analyze:
     print(f"\n{metric_name}:")
     print("-" * 80)
     
-    diff_summary, temporal_conv_round, optimal_conv_round, osc_round = analyze_convergence(
+    # Skip CV analysis for heterogeneity metric (CV of std is meaningless)
+    skip_cv_analysis = (metric_col == "c_index_std_across_clients")
+    
+    result = analyze_convergence(
         df_clean, metric_col, N, t_critical, k=3, 
         practical_threshold=0.005, max_degradation=0.01
     )
+    diff_summary, temporal_conv_round, optimal_conv_round, osc_round, stoch_conv_round, osc_low_var = result
     
     # Show key columns
     display_cols = ["round", "mean_diff", "ci_lower", "ci_upper", "cv",
@@ -515,18 +537,35 @@ for metric_col, metric_name in metrics_to_analyze:
     else:
         print("✗ No temporal convergence detected")
     
-    # STAGE 2: Optimal convergence (temporal + stochastic)
-    if pd.notna(optimal_conv_round):
-        print(f"✓ OPTIMAL CONVERGENCE (Stage 2) at round: {optimal_conv_round}")
-        print(f"  (3 consecutive rounds with temporal stability AND CV < 15%)")
+    # STAGE 2: Stochastic stability (only for performance metrics)
+    if not skip_cv_analysis:
+        if pd.notna(stoch_conv_round):
+            print(f"✓ STOCHASTIC STABILITY detected at round: {stoch_conv_round}")
+            print(f"  (3 consecutive rounds with CV < 15% across runs)")
+        else:
+            print("✗ No stochastic stability detected (high variance persists)")
+        
+        # OPTIMAL: Combination of both
+        if pd.notna(optimal_conv_round):
+            print(f"✓ OPTIMAL CONVERGENCE (Stage 1 + 2) at round: {optimal_conv_round}")
+            print(f"  (Both temporal stability AND low variance achieved)")
+            # Show CV at optimal round
+            opt_cv = diff_summary[diff_summary["round"] == optimal_conv_round]["cv"].values[0]
+            print(f"  CV at this round: {opt_cv:.1%}")
+        else:
+            print("✗ No optimal convergence detected")
     else:
-        print("✗ No optimal convergence detected (high variance persists)")
+        print("⚠ CV analysis skipped for this metric (CV of std dev is not meaningful)")
     
+    # Oscillation as alternative convergence signal
     if pd.notna(osc_round):
-        print(f"✓ STABLE OSCILLATION at round: {osc_round}")
+        print(f"\n✓ STABLE OSCILLATION at round: {osc_round}")
         print(f"  (3 consecutive rounds oscillating around zero with |change| < 0.5%)")
+        if not skip_cv_analysis and osc_low_var:
+            osc_cv = diff_summary[diff_summary["round"] == osc_round]["cv"].values[0]
+            print(f"  CV at oscillation: {osc_cv:.1%} (reproducible!)")
     else:
-        print("✗ No stable oscillation pattern detected")
+        print("\n✗ No stable oscillation pattern detected")
     
     # Summary statistics for post-round-10 behavior
     post_10 = diff_summary[diff_summary["round"] >= 10]
@@ -553,9 +592,8 @@ round_summary.columns = ["round", "mean", "std"]
 round_summary["se"] = round_summary["std"] / np.sqrt(N)
 
 # Get convergence info
-diff_global, temporal_conv_global, optimal_conv_global, osc_global = analyze_convergence(
-    df_clean, "c_index_global_avg", N, t_critical, k=3
-)
+result_global = analyze_convergence(df_clean, "c_index_global_avg", N, t_critical, k=3)
+diff_global, temporal_conv_global, optimal_conv_global, osc_global = result_global[:4]
 
 axes[0, 0].plot(round_summary["round"], round_summary["mean"], 
                 label="Mean C-index", linewidth=2, marker='o', markersize=4)
@@ -624,9 +662,8 @@ worst_summary = df_clean.groupby("round").agg({
 worst_summary.columns = ["round", "mean", "std"]
 worst_summary["se"] = worst_summary["std"] / np.sqrt(N)
 
-diff_worst, temporal_conv_worst, optimal_conv_worst, osc_worst = analyze_convergence(
-    df_clean, "c_index_worst", N, t_critical, k=3
-)
+result_worst = analyze_convergence(df_clean, "c_index_worst", N, t_critical, k=3)
+diff_worst, temporal_conv_worst, optimal_conv_worst, osc_worst = result_worst[:4]
 
 axes[1, 0].plot(worst_summary["round"], worst_summary["mean"], 
                 label="Worst Client", linewidth=2, color='red', marker='o', markersize=4)
@@ -662,9 +699,8 @@ var_summary = df_clean.groupby("round").agg({
 var_summary.columns = ["round", "mean", "std"]
 var_summary["se"] = var_summary["std"] / np.sqrt(N)
 
-diff_var, temporal_conv_var, optimal_conv_var, osc_var = analyze_convergence(
-    df_clean, "c_index_std_across_clients", N, t_critical, k=3
-)
+result_var = analyze_convergence(df_clean, "c_index_std_across_clients", N, t_critical, k=3)
+diff_var, temporal_conv_var, optimal_conv_var, osc_var = result_var[:4]
 
 axes[1, 1].plot(var_summary["round"], var_summary["mean"], 
                 label="Std Dev", linewidth=2, color='purple', marker='o', markersize=4)
@@ -754,9 +790,9 @@ summary_data = []
 
 # Re-run analyses to collect summary
 for metric_col, metric_name in metrics_to_analyze:
-    diff_summary, temporal_conv_round, optimal_conv_round, osc_round = analyze_convergence(
-        df_clean, metric_col, N, t_critical, k=3
-    )
+    result = analyze_convergence(df_clean, metric_col, N, t_critical, k=3)
+    diff_summary, temporal_conv_round, optimal_conv_round, osc_round = result[:4]
+    stoch_conv_round, osc_low_var = result[4:6]
     
     # Post-round-10 statistics
     post_10 = diff_summary[diff_summary["round"] >= 10]
@@ -766,15 +802,22 @@ for metric_col, metric_name in metrics_to_analyze:
     pct_small_changes = (post_10['mean_diff'].abs() < 0.005).mean() * 100 if len(post_10) > 0 else 0
     pct_low_cv = (post_10['cv'] < 0.15).mean() * 100 if len(post_10) > 0 else 0
     
+    # Format convergence info
+    optimal_str = int(optimal_conv_round) if pd.notna(optimal_conv_round) else 'N/A'
+    
+    # Add oscillation with CV info for performance metrics
+    osc_str = int(osc_round) if pd.notna(osc_round) else 'N/A'
+    if pd.notna(osc_round) and osc_low_var and metric_col != "c_index_std_across_clients":
+        osc_str = f"{int(osc_round)} ✓CV"
+    
     summary_data.append({
         'Metric': metric_name.replace('C-index', '').strip(),
-        'Temporal Conv': int(temporal_conv_round) if pd.notna(temporal_conv_round) else 'Not detected',
-        'Optimal Conv': int(optimal_conv_round) if pd.notna(optimal_conv_round) else 'Not detected',
-        'Oscillation': int(osc_round) if pd.notna(osc_round) else 'Not detected',
-        'Mean |Δ| (post-10)': f'{mean_abs_change:.6f}' if not np.isnan(mean_abs_change) else 'N/A',
-        'Mean CV (post-10)': f'{mean_cv:.4f}' if not np.isnan(mean_cv) else 'N/A',
-        '% |Δ|<0.5%': f'{pct_small_changes:.1f}%',
-        '% CV<15%': f'{pct_low_cv:.1f}%'
+        'Temporal': int(temporal_conv_round) if pd.notna(temporal_conv_round) else 'N/A',
+        'Stochastic': int(stoch_conv_round) if pd.notna(stoch_conv_round) else 'N/A',
+        'Optimal': optimal_str,
+        'Oscillation': osc_str,
+        'Mean CV': f'{mean_cv:.1%}' if not np.isnan(mean_cv) else 'N/A',
+        '% CV<15%': f'{pct_low_cv:.0f}%'
     })
 
 summary_df = pd.DataFrame(summary_data)
@@ -784,21 +827,26 @@ print("\n" + "="*80)
 print("INTERPRETATION:")
 print("="*80)
 print("TWO-STAGE CONVERGENCE CRITERION:")
-print("\n• Stage 1 - Temporal Convergence: First round where training stabilizes")
-print("  (3 consecutive rounds with |change| < 0.5% and not significantly improving)")
-print("  → Indicates when improvements have plateaued")
-print("\n• Stage 2 - Optimal Convergence: First round with both temporal stability AND")
-print("  low variance (CV < 15% across runs)")
-print("  → Recommended round for reporting results (stable + reproducible)")
-print("\n• Oscillation: Model oscillates around zero for 3 consecutive rounds")
-print("  (typical late-stage FL behavior)")
-print("\n• Mean CV (post-10): Average coefficient of variation (std/mean) after round 10")
-print("  CV < 15% indicates good reproducibility (Reed et al., 2002)")
+print("\n• Stage 1 - Temporal: Training improvements plateau (|change| < 0.5%)")
+print("  → Indicates when performance has stabilized")
+print("\n• Stage 2 - Stochastic: Variance across runs is low (CV < 15%)")  
+print("  → Ensures reproducibility")
+print("\n• Optimal Convergence: LATER of temporal and stochastic convergence")
+print("  → Recommended round for reporting results")
+print("\n• Oscillation + Low CV: Valid alternative convergence signal")
+print("  → Common in FL due to client sampling (Khaled et al., 2020)")
+print("\n• Mean CV: Average coefficient of variation post-round 10")
+print("  - CV < 10%: Excellent reproducibility")
+print("  - CV 10-15%: Good reproducibility")
+print("  - CV > 15%: High variance, questionable reproducibility")
+print("\n⚠ NOTE: CV analysis NOT applied to 'Std Dev across Clients'")
+print("  (CV of a variance measure is inherently noisy and meaningless)")
 print("\n" + "="*80)
 print("\nREFERENCES:")
 print("- Henderson et al. (2018): Deep RL That Matters (variance in RL)")
 print("- Bouthillier et al. (2019): Accounting for Variance in ML Experiments")
 print("- Reed et al. (2002): CV < 15% threshold in experimental sciences")
+print("- Khaled et al. (2020): Oscillation patterns in FL convergence")
 print("="*80)
 
 # Save summary to CSV
