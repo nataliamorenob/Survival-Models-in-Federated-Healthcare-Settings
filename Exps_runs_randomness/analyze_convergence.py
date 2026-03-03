@@ -445,28 +445,60 @@ def analyze_convergence(df_clean, metric_col, N, t_critical, k=3,
     
     diff_summary = pd.DataFrame(results)
     
-    # STAGE 1: Find k consecutive temporally converged rounds
+    # STAGE 1: Find k consecutive temporally converged rounds WITH POST-VALIDATION
+    # Instead of finding FIRST occurrence, find first occurrence that's maintained
     diff_summary["temporal_stable_window"] = (
         diff_summary["temporal_converged"]
         .rolling(window=k)
         .sum() == k
     )
     
-    temporal_convergence_round = diff_summary.loc[
+    # Find all candidate temporal convergence rounds
+    temporal_candidates = diff_summary.loc[
         diff_summary["temporal_stable_window"] == True, "round"
-    ].min()
+    ].values
     
-    # STAGE 2 - IMPROVED: Find k consecutive rounds with low CV AFTER temporal convergence
-    # This allows small fluctuations in temporal stability as long as variance is low
+    # Validate each candidate: check that all subsequent rounds remain stable
+    temporal_convergence_round = np.nan
+    for candidate in temporal_candidates:
+        candidate_idx = diff_summary[diff_summary["round"] == candidate].index[0]
+        # Check all subsequent rounds don't exceed practical threshold
+        subsequent_rounds = diff_summary.loc[candidate_idx + 1:]
+        if len(subsequent_rounds) == 0:
+            # Last rounds in training - accept
+            temporal_convergence_round = candidate
+            break
+        # Check no large improvements after this point
+        max_subsequent_change = subsequent_rounds["mean_diff"].abs().max()
+        if max_subsequent_change <= practical_threshold * 2:  # Allow some margin (1%)
+            temporal_convergence_round = candidate
+            break
+    
+    # STAGE 2: Find k consecutive rounds with low CV WITH POST-VALIDATION
     diff_summary["stochastic_stable_window"] = (
         diff_summary["stochastic_stable"]
         .rolling(window=k)
         .sum() == k
     )
     
-    stochastic_convergence_round = diff_summary.loc[
+    # Find all candidate stochastic convergence rounds
+    stochastic_candidates = diff_summary.loc[
         diff_summary["stochastic_stable_window"] == True, "round"
-    ].min()
+    ].values
+    
+    # Validate each candidate: prefer later rounds with sustained low CV
+    stochastic_convergence_round = np.nan
+    for candidate in stochastic_candidates:
+        candidate_idx = diff_summary[diff_summary["round"] == candidate].index[0]
+        subsequent_rounds = diff_summary.loc[candidate_idx + 1:]
+        if len(subsequent_rounds) == 0:
+            stochastic_convergence_round = candidate
+            break
+        # Check that CV remains reasonably low (allow some fluctuation)
+        subsequent_cv = subsequent_rounds["cv"]
+        if subsequent_cv.median() < max_cv * 1.2:  # Allow 20% margin (18%)
+            stochastic_convergence_round = candidate
+            break
     
     # Optimal convergence: later of temporal or stochastic convergence
     # (ensures BOTH conditions have been met)
