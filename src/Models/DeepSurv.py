@@ -260,7 +260,7 @@ class DeepSurv:
         dataloader = DataLoader(
             dataset, 
             batch_size=effective_batch_size,
-            shuffle=True,  # Shuffle for mini-batch training
+            shuffle=False,  # CRITICAL: Must NOT shuffle - Cox loss requires time-sorted data!
             drop_last=False
         )
         
