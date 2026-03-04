@@ -25,11 +25,13 @@ class Config:
     num_clients: int = 3  # Number of participating centers/clients (max 6) - has to be the same  as the length of centers list
     strategy: str = "FedAvg"  # Options: "FedAvg", "FedProx", "FedAdam", "FedSurvForest", etc. Used for DeepSurv and RSF federated strategies.
     num_rounds: int = 2
-    num_epochs: int = 2
-    batch_size: int = 32  # Larger batches for stability (was 16)
-    num_time_bins: int = 100
+    num_epochs: int = 30
+    #batch_size: int = 32  # Larger batches for stability (was 16)
+    batch_size: int = 8
+    #num_time_bins: int = 100
     strategy: str = "FedAvg"
-    lr: float = 0.0005  # Reduced from 0.001 for more stable training
+    #lr: float = 0.0005  # Reduced from 0.001 for more stable training
+    lr: float = 0.1
     
     # Data parameters:
     centers: list = field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
