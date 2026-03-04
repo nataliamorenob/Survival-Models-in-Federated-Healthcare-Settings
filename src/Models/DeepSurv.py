@@ -142,7 +142,8 @@ class DeepSurv:
         epochs=100,
         batch_size=32,
         random_state=None,
-        device=None
+        device=None,
+        num_updates_per_round=None
     ):
         """
         Initialize DeepSurv model.
@@ -170,6 +171,7 @@ class DeepSurv:
         self.epochs = epochs
         self.batch_size = batch_size
         self.random_state = random_state
+        self.num_updates_per_round = num_updates_per_round  # For federated learning
         
         # Set device
         if device is None:
@@ -249,16 +251,17 @@ class DeepSurv:
         times_tensor = torch.FloatTensor(times_sorted).reshape(-1, 1).to(self.device)
         events_tensor = torch.FloatTensor(events_sorted).reshape(-1, 1).to(self.device)
         
-        # Use full-batch: set batch_size to dataset size
-        effective_batch_size = len(X_sorted)
+        # Use mini-batch training for federated learning
+        # Batch size is set from config
+        effective_batch_size = self.batch_size
         
         # Create dataset and dataloader
         dataset = TensorDataset(X_tensor, times_tensor, events_tensor)
         dataloader = DataLoader(
             dataset, 
-            batch_size=effective_batch_size,  # Full-batch per client
-            shuffle=False,
-            drop_last=False  # Keep all samples since using full batch
+            batch_size=effective_batch_size,
+            shuffle=True,  # Shuffle for mini-batch training
+            drop_last=False
         )
         
         # Prepare validation data if provided
@@ -279,10 +282,26 @@ class DeepSurv:
             val_dataset = TensorDataset(X_val_tensor, val_times_tensor, val_events_tensor)
             val_dataloader = DataLoader(
                 val_dataset,
-                batch_size=len(X_val_sorted),  # Full-batch for validation too
+                batch_size=len(X_val_sorted),  # Full-batch for validation
                 shuffle=False,
                 drop_last=False
             )
+        
+        # Calculate effective number of epochs based on fixed number of updates
+        # Formula: num_epochs = num_updates / (dataset_size / batch_size)
+        # This ensures all clients do the same number of gradient updates
+        num_updates_per_epoch = len(X_sorted) / float(effective_batch_size)
+        
+        # Check if num_updates_per_round is specified (federated learning)
+        if hasattr(self, 'num_updates_per_round') and self.num_updates_per_round is not None:
+            # Calculate epochs to achieve fixed number of updates
+            effective_epochs = int(np.ceil(self.num_updates_per_round / num_updates_per_epoch))
+            print(f"[DeepSurv] Using fixed updates approach: {self.num_updates_per_round} updates = {effective_epochs} epochs")
+            print(f"[DeepSurv]   Dataset size: {len(X_sorted)}, Batch size: {effective_batch_size}, Updates/epoch: {num_updates_per_epoch:.2f}")
+        else:
+            # Use configured number of epochs (centralized/local training)
+            effective_epochs = self.epochs
+            print(f"[DeepSurv] Using fixed epochs approach: {effective_epochs} epochs")
         
         # Early stopping parameters
         best_val_loss = float('inf')
@@ -293,9 +312,9 @@ class DeepSurv:
         
         # Training loop
         self.network.train()
-        print(f"[DeepSurv] Starting training for {self.epochs} epochs...")
+        print(f"[DeepSurv] Starting training for {effective_epochs} epochs...")
         
-        for epoch in range(self.epochs):
+        for epoch in range(effective_epochs):
             # Training phase
             epoch_loss = 0
             n_batches = 0
@@ -362,12 +381,12 @@ class DeepSurv:
                 # Log every epoch with both train and val loss
                 if verbose:
                     prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"
-                    log_msg = f"{prefix} Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}"
+                    log_msg = f"{prefix} Epoch {epoch+1}/{effective_epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}"
                     print(log_msg)
                     if log_file:
                         self.logger.info(log_msg)
                     elif (epoch + 1) % 10 == 0:
-                        self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+                        self.logger.info(f"Epoch {epoch+1}/{effective_epochs} | Train Loss: {avg_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
                 
                 # Early stopping
                 if patience_counter >= patience:
@@ -385,9 +404,9 @@ class DeepSurv:
                 # No validation - just log training loss
                 if verbose and (epoch + 1) % 5 == 0:
                     prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"
-                    print(f"{prefix} Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f}")
+                    print(f"{prefix} Epoch {epoch+1}/{effective_epochs} | Train Loss: {avg_loss:.4f}")
                     if (epoch + 1) % 10 == 0:
-                        self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Train Loss: {avg_loss:.4f}")
+                        self.logger.info(f"Epoch {epoch+1}/{effective_epochs} | Train Loss: {avg_loss:.4f}")
         
         if val_dataloader is not None and best_state_dict is not None:
             prefix = f"[Client {client_id} DeepSurv]" if client_id is not None else "[DeepSurv]"

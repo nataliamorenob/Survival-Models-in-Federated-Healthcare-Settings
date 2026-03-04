@@ -102,8 +102,20 @@ class FederatedDeepSurvClient(fl.client.Client):
         
         WARNING: This computes Cox loss using only local patients' risk sets,
         which is mathematically incorrect but necessary for privacy.
+        
+        Training uses fixed number of updates per round (from config.num_updates_per_round)
+        to ensure fair computational cost across all clients regardless of dataset size.
         """
-        print(f"[Client {self.cid}] Training DeepSurv for {self.config.num_epochs} epochs")
+        # Calculate expected epochs based on fixed updates
+        dataset_size = len(self.X_train)
+        batch_size = self.model.batch_size
+        updates_per_epoch = dataset_size / float(batch_size)
+        if hasattr(self.model, 'num_updates_per_round') and self.model.num_updates_per_round:
+            expected_epochs = int(np.ceil(self.model.num_updates_per_round / updates_per_epoch))
+            print(f"[Client {self.cid}] Training DeepSurv: {self.model.num_updates_per_round} updates ≈ {expected_epochs} epochs")
+            print(f"[Client {self.cid}] Dataset: {dataset_size} samples, Batch: {batch_size}, Updates/epoch: {updates_per_epoch:.2f}")
+        else:
+            print(f"[Client {self.cid}] Training DeepSurv for {self.config.num_epochs} epochs")
 
         # Get proximal_mu from server config (FedProx only)
         proximal_mu = ins.config.get("proximal_mu", None)

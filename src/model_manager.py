@@ -46,6 +46,11 @@ class ModelManager:
             )
             
             # Initialize DeepSurv with config parameters
+            # For federated learning, use fixed number of updates per round
+            num_updates = None
+            if self.config.training_mode == "federated":
+                num_updates = getattr(self.config, 'num_updates_per_round', 100)
+            
             self.model = DeepSurv(
                 n_features=39,  # TCGA-BRCA has 39 features
                 hidden_layers=getattr(self.config, 'deepsurv_hidden_layers', [64, 32, 16]),
@@ -56,7 +61,8 @@ class ModelManager:
                 l2_reg=getattr(self.config, 'deepsurv_l2_reg', 0.0),
                 epochs=getattr(self.config, 'num_epochs', 100),
                 batch_size=getattr(self.config, 'batch_size', 64),
-                random_state=client_seed
+                random_state=client_seed,
+                num_updates_per_round=num_updates
             )
 
         else: # TO DO for other models
