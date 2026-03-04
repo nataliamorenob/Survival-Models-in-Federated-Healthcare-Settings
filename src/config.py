@@ -69,7 +69,7 @@ class Config:
     #num_time_bins: int = 100
     strategy: str = "FedAvg"
     #lr: float = 0.0005  # Reduced from 0.001 for more stable training
-    lr: float = 0.1
+    lr: float = 0.001  # Appropriate learning rate for Adam optimizer with neural networks
     
     # Data parameters:
     centers: list = field(default_factory=lambda: [0, 1, 2, 3, 4])  # Using 5 centers (excluding center 5)
