@@ -63,7 +63,7 @@ class Config:
     num_rounds: int = None  # Will be calculated dynamically via get_nb_max_rounds() in __post_init__
     num_epochs: int = 30  # Used for centralized/local training AND as num_epochs_pooled for round calculation
     num_updates_per_round: int = 100  # Fixed number of gradient updates per client per round (Owkin FLamby approach)
-    batch_size: int = 32
+    batch_size: int = 8
     total_train_samples: int = 578  # Actual training samples for 5 centers (0-4) - validation done separately
     #num_time_bins: int = 100
     strategy: str = "FedAvg"
