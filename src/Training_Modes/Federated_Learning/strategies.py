@@ -253,24 +253,24 @@ class DeepSurvFedAdam(FedAdam):
     the adaptive optimization and turn it into FedAvg.
     
     Hyperparameters tuned for survival analysis with small, heterogeneous data:
-    - eta: 1e-5 (very low server learning rate to prevent collapse)
-    - beta_1: 0.5 (heavily reduced momentum for stability)
+    - eta: 1e-3 (conservative server learning rate for stability)
+    - beta_1: 0.9 (standard momentum)
     - beta_2: 0.99 (keep adaptive learning rate)
-    - tau: 1e-3 (small regularization)
+    - tau: 1e-3 (numerical stability epsilon, matching FLamby)
     """
     
     def __init__(self, *args, **kwargs):
         # Set hyperparameters for survival analysis with adaptive optimization
-        kwargs.setdefault('eta', 1e-2)  # Server learning rate (increased from 1e-5 for learning)
+        kwargs.setdefault('eta', 1e-3)  # Conservative server learning rate
         kwargs.setdefault('beta_1', 0.9)  # First moment coefficient (standard Adam default)
         kwargs.setdefault('beta_2', 0.99)  # Second moment coefficient (default: 0.99)
-        kwargs.setdefault('tau', 1e-9)  # Regularization term (standard default)
+        kwargs.setdefault('tau', 1e-3)  # Numerical stability (matching FLamby's FedAdam)
         super().__init__(*args, **kwargs)
         
         logger = logging.getLogger("main")
-        logger.info(f"[FedAdam] Initialized with eta={kwargs.get('eta')}, "
-                   f"beta_1={kwargs.get('beta_1')}, beta_2={kwargs.get('beta_2')}, "
-                   f"tau={kwargs.get('tau')}")
+        logger.info(f"[FedAdam] Initialized with eta={self.eta}, "
+                   f"beta_1={self.beta_1}, beta_2={self.beta_2}, "
+                   f"tau={self.tau}")
 
     def configure_fit(self, server_round, parameters, client_manager):
         """Configure training and pass round number to clients."""
