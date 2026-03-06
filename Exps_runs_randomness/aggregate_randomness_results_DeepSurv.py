@@ -4,8 +4,8 @@ from pathlib import Path
 # ---------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------
-RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps")
-#RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/32,32ArchitectureFlamby/Federated/FedAdam/5cl")
+#RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps")
+RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/32,32ArchitectureFlamby/Federated/FedAdam/5cl")
 #RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/Federated/DeepSurv/3cl/30rounds_3cl_FedProx")
 #RESULTS_DIR = Path("/Users/nataliamorenoblasco/Desktop/Master_Thesis/Exps_runs_randomness")
 

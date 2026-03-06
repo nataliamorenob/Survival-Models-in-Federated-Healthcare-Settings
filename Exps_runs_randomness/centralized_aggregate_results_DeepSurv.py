@@ -4,7 +4,7 @@ from pathlib import Path
 # ---------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------
-RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/32,32ArchitectureFlamby/Local/c0")
+RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/32,32ArchitectureFlamby/Local/c4")
 
 N_RUNS = 10
 
