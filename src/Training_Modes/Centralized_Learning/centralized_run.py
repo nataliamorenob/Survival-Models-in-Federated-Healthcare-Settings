@@ -165,6 +165,74 @@ def run_centralized(config):
 		logger.info("[Centralized] RSF evaluation finished.")
 		return metrics_summary
 
+	if config.model.lower() == "rsf_fedsurf":
+		logger.info(f"[Centralized] Training RSF_FedSurF with {config.n_trees_federated} trees")
+		model.fit(global_data["X_train"], global_data["y_train"])
+		trees = model.estimators_
+		n_trees = len(trees)
+		logger.info(f"[Centralized] Trained {n_trees} trees")
+
+		metrics_summary["global"] = evaluate_rsf(
+			model,
+			data={
+				"X_test": global_data["X_test"],
+				"y_test": global_data["y_test"],
+				"y_train": global_data["y_train"],
+			},
+			client_id=0,
+			config=config,
+		)
+
+		for center, center_data in per_center.items():
+			metrics_summary["per_center"][center] = evaluate_rsf(
+				model,
+				data={
+					"X_test": center_data["X_test"],
+					"y_test": center_data["y_test"],
+					"y_train": global_data["y_train"],
+				},
+				client_id=center,
+				config=config,
+			)
+
+		run_id = os.environ.get("RUN_ID", "unknown")
+		csv_path = os.environ.get(
+			"OUTPUT_CSV",
+			os.path.join(
+				os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+				"results_randomness_exps",
+				f"run_{run_id}.csv",
+			),
+		)
+
+		append_metrics_to_csv(
+			csv_path,
+			{
+				"timestamp": datetime.now().isoformat(),
+				"run_id": run_id,
+				"client_id": "centralized_global",
+				"c_index": metrics_summary["global"]["C-index"],
+				"auc": metrics_summary["global"]["AUC"],
+				"ibs": metrics_summary["global"]["IBS"],
+			},
+		)
+
+		for center, metrics in metrics_summary["per_center"].items():
+			append_metrics_to_csv(
+				csv_path,
+				{
+					"timestamp": datetime.now().isoformat(),
+					"run_id": run_id,
+					"client_id": f"centralized_{center}",
+					"c_index": metrics["C-index"],
+					"auc": metrics["AUC"],
+					"ibs": metrics["IBS"],
+				},
+			)
+
+		logger.info("[Centralized] RSF_FedSurF evaluation finished.")
+		return metrics_summary
+
 	if config.model.lower() == "deepsurv":
 		logger.info(f"[Centralized] Training DeepSurv for {config.num_epochs} epochs with validation")
 		

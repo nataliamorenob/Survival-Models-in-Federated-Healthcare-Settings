@@ -458,7 +458,7 @@ class DatasetManager:
         df_train = self._to_dataframe(train_ds)
         df_test = self._to_dataframe(test_ds)
 
-        if self.config.model.lower() in ["rsf", "deepsurv"]:
+        if self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf"]:
             # Log pre-split statistics for debugging
             self.log_and_print(
                 f"[Local] Pre-split data for center {center} → "
@@ -585,7 +585,7 @@ class DatasetManager:
         per_center = {}
 
         # Random Survival Forest (RSF) and DeepSurv models
-        if self.config.model.lower() in ["rsf", "deepsurv"]:
+        if self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf"]:
             # Validation checks BEFORE split
             self.log_and_print(
                 f"[Centralized] Pre-split validation → "
