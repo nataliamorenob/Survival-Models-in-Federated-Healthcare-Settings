@@ -1,33 +1,94 @@
-# FedSurF++ Implementation Guide
+# FedSurF++ Implementation Guide (PAPER-EXACT)
 
 ## Overview
 
-This guide explains the implementation of **FedSurF++** with C-Index based tree sampling, following the paper ["FedSurF++: Enhanced Federated Survival Forest with C-Index Sampling"](https://arxiv.org/...).
+This is a **paper-exact** implementation of **FedSurF++** with C-Index based tree sampling, following the algorithm described in the paper.
 
-## Algorithm Description
+## Algorithm Description (From Paper)
 
-FedSurF++ is a federated survival analysis algorithm that combines Random Survival Forests (RSF) with federated learning. It consists of three main phases:
+FedSurF++ is a federated survival analysis algorithm that consists of **three distinct phases**:
 
 ### Phase 1: Local Training
-Each client k trains a local Random Survival Forest Mk with Tk trees using their local data Dk.
+Each client k trains a local Random Survival Forest M_k with T_k trees using their local data D_k.
 
-### Phase 2: Tree Assignment
-The server determines how many trees T'k each client should contribute to the global forest. This is done proportionally to the client's dataset size Nk, similar to FedAvg's weighted aggregation.
+### Phase 2: Tree Assignment (Server-side)
+The server determines how many trees T'_k each client should send. Algorithm from paper:
 
-Algorithm (lines 4-7 from paper):
 ```
-For i = 1 to T (total global trees):
-    Sample client k with probability proportional to Nk
-    Increment T'k
+Input: T (desired trees in global forest), {N_k} (dataset sizes)
+Output: {T'_k} (trees per client)
+
+for iteration = 1 to T:
+    Sample client k with probability ∝ N_k
+    Increment T'_k
+Ensure T'_k ≤ T_k for all clients
 ```
 
-### Phase 3: Tree Sampling (C-Index)
-Each client evaluates their local trees using the Concordance Index (C-Index) on a validation set, then samples T'k trees proportionally to their C-Index scores.
+### Phase 3: Tree Sampling (Client-side)
+Each client evaluates their trees with C-Index and samples T'_k trees proportionally:
 
-For client k:
-1. Evaluate each tree j: compute C-Index_j on validation data
-2. Build sampling distribution: p_j = C-Index_j / Σ(C-Index_j)
-3. Sample T'k trees without replacement using p_j
+```
+For each client k:
+    1. Evaluate each tree j on validation set → C-Index_j
+    2. Build probability: p_j = C-Index_j / Σ(C-Index_j)
+    3. Sample T'_k trees WITHOUT replacement using p_j
+    4. Send selected trees to server
+```
+
+## Implementation Flow (Two Communication Rounds)
+
+### **Round 1: Metadata + Tree Assignment**
+
+**Clients:**
+1. Train local RSF with T_k trees
+2. Send metadata: `{Tk: T_k, Nk: N_k}` to server
+
+**Server:**
+1. Collect metadata from all clients
+2. Perform tree assignment (iterative sampling with probability ∝ N_k)
+3. Compute T'_k for each client
+4. Send T'_k back to each client
+
+### **Round 2: Tree Sampling + Transfer**
+
+**Clients:**
+1. Receive T'_k from server
+2. Evaluate ALL local trees with C-Index on validation set
+3. Sample T'_k trees proportional to C-Index scores
+4. Send selected T'_k trees to server
+
+**Server:**
+1. Collect trees from all clients
+2. Concatenate into global forest
+3. Broadcast global forest
+
+### **Round 3+: Evaluation**
+
+**Clients:**
+1. Receive global forest
+2. Evaluate on test set
+3. Report metrics (C-Index, AUC, IBS)
+
+## Key Architectural Points
+
+### Why Two Rounds?
+
+1. **Privacy**: Clients don't send ALL trees, only T'_k selected trees
+2. **Communication**: Reduces network load - clients only send needed trees
+3. **Paper-Exact**: Follows Algorithm 1 exactly as written
+
+### Tree Assignment (Phase 2)
+
+The server does **NOT** do the tree sampling. It only:
+- Determines how many trees each client contributes
+- Uses dataset size as proxy for representativeness
+
+### Tree Sampling (Phase 3)
+
+**Clients** do the sampling (NOT server):
+- Each client evaluates their own trees locally
+- Sampling happens client-side to preserve privacy
+- Only send selected trees to server
 
 ## Implementation Components
 
@@ -35,167 +96,181 @@ For client k:
 
 **Class:** `RSFFedSurFPlus`
 
-Wraps scikit-survival's `RandomSurvivalForest` with FedSurF-specific functionality:
-- `fit(X, y)`: Train local RSF
-- `estimators_`: Access trained decision trees
-- `set_trees(trees, n_features, init_times)`: Load global federated forest
-- `predict_survival_function_fedsurf(X)`: Predict with tree averaging
+Standard RSF wrapper with FedSurF-specific functionality.
 
 ### 2. Client: `Training_Modes/Federated_Learning/clientRSFFedSurF.py`
 
 **Class:** `FederatedRSFFedSurFClient`
 
-Implements the client-side logic:
+**fit() handles TWO different rounds:**
 
-**Round 1 (Training & Evaluation):**
-1. Train local RSF with `n_trees_local` trees
-2. Evaluate each tree on validation set using C-Index
-3. Send ALL trees + C-Index scores to server
+```python
+def fit(self, ins):
+    round_type = ins.config.get("round_type")
+    
+    if round_type == "metadata":
+        return self._fit_round1_metadata()  # Send Tk, Nk
+    elif round_type == "tree_sampling":
+        return self._fit_round2_sampling(ins)  # Sample and send trees
+```
 
-**Round 2+ (Evaluation):**
-1. Load global forest from server
-2. Evaluate on test set using `evaluate_rsf()`
+**Round 1:**
+- Train RSF
+- Return: `{Tk, Nk}`
+
+**Round 2:**
+- Receive T'_k
+- Evaluate trees with C-Index
+- Sample T'_k trees
+- Return: selected trees
 
 ### 3. Strategy: `Training_Modes/Federated_Learning/strategies.py`
 
 **Class:** `FedSurFPlusPlus`
 
-Implements the server-side aggregation:
-
-**Round 1 (aggregate_fit):**
-1. Collect all trees and metadata from clients
-2. **Tree Assignment:** Determine T'k for each client (proportional to Nk)
-3. **Tree Sampling:** Sample T'k trees from each client (proportional to C-Index)
-4. Build global forest with exactly `n_trees_federated` trees
-
-**Round 2+ (configure_evaluate):**
-- Send global forest to all clients for evaluation
-
-### 4. Configuration
-
-The configuration in `config.py` includes:
+**aggregate_fit() routes by round:**
 
 ```python
-# RSF FedSurF++ parameters
-n_trees_local: int = 200          # Trees trained per client
-n_trees_federated: int = 80       # Total trees in global forest
-min_samples_split: int = 5        # Min samples for node split
-min_samples_leaf: int = 10        # Min samples at leaf
-random_state: int = 42            # Random seed
+def aggregate_fit(self, server_round, results, failures):
+    if server_round == 1:
+        return self._aggregate_round1_metadata(results)
+    elif server_round == 2:
+        return self._aggregate_round2_trees(results)
+```
+
+**Round 1:**
+1. Collect metadata
+2. Perform tree assignment
+3. Store T'_k for each client
+4. Return None
+
+**Round 2:**
+1. Collect trees from clients
+2. Build global forest
+3. Return global forest
+
+**configure_fit() configures each round:**
+
+```python
+def configure_fit(self, server_round, ...):
+    if server_round == 1:
+        return [(client, FitIns(config={"round_type": "metadata"}))]
+    elif server_round == 2:
+        return [(client, FitIns(config={"round_type": "tree_sampling", 
+                                         "Tk_prime": T'_k}))]
+```
+
+### 4. Configuration: `config.py`
+
+FedSurF++ automatically uses **3 rounds**:
+- Round 1: Metadata
+- Round 2: Tree sampling
+- Round 3: Evaluation
+
+```python
+if self.model == "RSF_FedSurF":
+    self.num_rounds = 3
 ```
 
 ## Usage
-
-### Basic Example
 
 ```python
 from src.config import Config
 from src.main import main
 
-# Configure FedSurF++ experiment
 user_config = Config(
     model="RSF_FedSurF",
     centers=[0, 1, 2, 3, 4],
     training_mode="federated",
     num_clients=5,
     strategy="FedSurFPlusPlus",
-    n_trees_local=200,
-    n_trees_federated=80,
+    n_trees_local=200,        # Each client trains 200 trees
+    n_trees_federated=80,     # Global forest has 80 trees
     eval_grid_mode="global"
 )
 
-# Run experiment
 main(user_config)
 ```
 
-### Command Line Execution
-
-```bash
-# Activate environment
-source venv/bin/activate
-
-# Run FedSurF++ experiment
-python src/main.py
-```
-
-## Key Differences from Original FedSurvForest
-
-| Aspect | FedSurvForest | FedSurF++ |
-|--------|---------------|-----------|
-| Tree Assignment | Random sampling weighted by dataset size | Explicit iterative assignment (Algorithm 1, lines 4-7) |
-| Tree Sampling | Global C-Index based | Client-specific C-Index based |
-| Implementation | Combined assignment + sampling | Separate two-phase approach |
-| Follows Paper | Partial | Complete Algorithm 1 |
-
-## Evaluation Metrics
-
-The implementation uses `evaluate_rsf()` from `utils.py` which computes:
-
-1. **C-Index (Concordance Index)**: Primary metric for ranking predictions
-2. **AUC (Area Under Curve)**: Time-dependent discriminative ability
-3. **IBS (Integrated Brier Score)**: Calibration and prediction accuracy
-
-## Files Created/Modified
-
-**New Files:**
-- `src/Models/RSF_FedSurF.py` - RSF model wrapper
-- `src/Training_Modes/Federated_Learning/clientRSFFedSurF.py` - FedSurF++ client
-- `src/Training_Modes/Federated_Learning/strategies.py` - Added `FedSurFPlusPlus` strategy
-
-**Modified Files:**
-- `src/model_manager.py` - Added RSF_FedSurF model recognition
-- `src/main.py` - Added client factory and strategy configuration
-
-## Logging
-
-The implementation provides detailed logging:
+## Communication Pattern
 
 ```
-[FedSurF++] Client 0: n_samples=120, n_trees=200, mean_C-index=0.6234
-[FedSurF++] Tree Assignment Phase: total_samples=578, clients=[0,1,2,3,4]
-[FedSurF++] Tree Assignment Result: Client 0: 15 | Client 1: 18 | ...
-[FedSurF++] Client 0: sampled 15 trees (C-index range: [0.58, 0.67])
-[FedSurF++] Global forest built: 80 trees (target: 80)
+ROUND 1:
+Client 0 → Server: {Tk: 200, Nk: 120}
+Client 1 → Server: {Tk: 200, Nk: 110}
+...
+Server computes: T'_0=15, T'_1=18, ...
+Server → Client 0: T'_k=15
+Server → Client 1: T'_k=18
+...
+
+ROUND 2:
+Client 0: Evaluates 200 trees, samples 15 best
+Client 0 → Server: [15 trees]
+Client 1: Evaluates 200 trees, samples 18 best
+Client 1 → Server: [18 trees]
+...
+Server: Concatenates all trees → Global forest (80 trees)
+Server → All: Global forest
+
+ROUND 3:
+Server → All: Global forest
+All → Server: Evaluation metrics
 ```
 
-## Hyperparameter Tuning
+## Key Differences from Original Implementation
 
-Key hyperparameters to tune:
+| Aspect | FedSurvForest | FedSurF++ (PAPER-EXACT) |
+|--------|---------------|-------------------------|
+| Communication Rounds | 1 | 2 |
+| Tree Assignment | Implicit | Explicit (Algorithm 1, lines 4-7) |
+| Who Does Sampling | Server | **Clients** |
+| Privacy | Sends all trees | Sends only T'_k selected trees |
+| Follows Paper | Partial | **Complete** |
 
-1. **n_trees_local** (100-500): More trees = better local model, longer training
-2. **n_trees_federated** (50-200): More trees = better global model, higher communication
-3. **min_samples_split** (5-20): Controls tree depth and overfitting
-4. **min_samples_leaf** (5-15): Prevents overly specific leaf nodes
+## Expected Output
 
-## Reproducibility
+```
+[FedSurF++] Initialized with T=80
+[FedSurF++][Round 1] Metadata Collection + Tree Assignment
+[FedSurF++][Round 1] Client 0: Tk=200, Nk=120
+[FedSurF++][Round 1] Client 1: Tk=200, Nk=110
+...
+[FedSurF++][Round 1] Tree Assignment Result: Client 0: T'_k=15 | Client 1: T'_k=18 | ...
 
-Seeds are set for reproducibility:
-- Global seed: `config.random_state`
-- Client seed: `config.random_state + client_id`
+[FedSurF++][Round 2] Tree Collection + Global Forest
+[Client 0][Round 2] Tree Assignment: T'_k=15
+[Client 0][Round 2] Evaluating trees with C-Index...
+[Client 0][Round 2] C-Index: mean=0.6234, range=[0.58, 0.67]
+[Client 0][Round 2] Sampled 15 trees: C-Index range=[0.61, 0.67]
+[FedSurF++][Round 2] Client 0: received 15 trees
+[FedSurF++][Round 2] Global forest built: 80 trees (target: 80)
 
-This ensures deterministic results across runs while maintaining client diversity.
+[FedSurF++][Round 3] Evaluation
+[Client 0] Test Metrics → C-index=0.6543, AUC=0.6821, IBS=0.1532
+```
 
 ## Troubleshooting
 
-**Issue:** "Global forest has fewer trees than target"
-- **Cause:** Clients don't have enough high-quality trees
-- **Solution:** Increase `n_trees_local` or improve data quality
+**Issue:** "Cannot exceed available trees"
+- **Cause:** T'_k > T_k for some client
+- **Solution:** Config automatically caps T'_k ≤ T_k
 
-**Issue:** Low C-Index scores
-- **Cause:** Insufficient tree diversity or poor validation set
-- **Solution:** Check data splits, increase tree parameters
+**Issue:** "Received fewer trees than target"
+- **Cause:** Clients don't have enough trees total
+- **Solution:** Increase `n_trees_local`
 
-**Issue:** Memory errors
-- **Cause:** Too many trees or large forests
-- **Solution:** Reduce `n_trees_local` or use smaller batches
+**Issue:** "round_type not found"
+- **Cause:** Using old client with new strategy
+- **Solution:** Ensure using `FederatedRSFFedSurFClient`
 
-## References
+## Summary
 
-- Original FedSurF paper
-- FedSurF++ paper (this implementation)
-- scikit-survival documentation
-- Flower FL framework documentation
+This implementation is **paper-exact**:
+- ✅ Two-phase communication (metadata → tree sampling)
+- ✅ Server does tree assignment (Algorithm 1, lines 4-7)
+- ✅ **Clients** do tree sampling (Algorithm 1, lines 8-10)
+- ✅ C-Index based sampling (local evaluation)
+- ✅ Privacy-preserving (only send selected trees)
 
-## Contact
-
-For questions or issues with this implementation, please refer to the project README or open an issue.
+All components follow the paper's Algorithm 1 precisely.

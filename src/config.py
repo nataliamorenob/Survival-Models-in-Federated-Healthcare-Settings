@@ -125,9 +125,15 @@ class Config:
         
         # Calculate num_rounds dynamically if not set (for federated training)
         if self.num_rounds is None and self.training_mode == "federated":
-            if self.model == "RSF" or self.strategy == "FedSurvForest":
-                self.num_rounds = 2  # RSF only needs 1 actual round (round 1), plus round 0
-                print(f"[Config] Set num_rounds = {self.num_rounds} for RSF (1 aggregation round + round 0)")
+            if self.model == "RSF":
+                self.num_rounds = 2  # RSF only needs 2 rounds (round 1: train+aggregate, round 2: evaluate)
+                print(f"[Config] Set num_rounds = {self.num_rounds} for RSF")
+            elif self.model == "RSF_FedSurF" or self.strategy == "FedSurFPlusPlus":
+                self.num_rounds = 3  # FedSurF++ needs 3 rounds (round 1: metadata, round 2: tree sampling, round 3: evaluate)
+                print(f"[Config] Set num_rounds = {self.num_rounds} for FedSurF++ (metadata + tree sampling + evaluation)")
+            elif self.strategy == "FedSurvForest":
+                self.num_rounds = 2  # FedSurvForest only needs 2 rounds
+                print(f"[Config] Set num_rounds = {self.num_rounds} for FedSurvForest")
             else:
                 self.num_rounds = get_nb_max_rounds(
                     num_updates=self.num_updates_per_round,

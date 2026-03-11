@@ -1,7 +1,7 @@
 # Training_Modes/Federated_Learning/clientRSFFedSurF.py
 """
-FedSurF++ Client Implementation
-Implements the client-side logic for FedSurF++ with C-Index based tree sampling.
+FedSurF++ Client Implementation (PAPER-EXACT)
+Implements the exact three-phase algorithm from the paper.
 """
 
 import flwr as fl
@@ -16,29 +16,19 @@ import logging
 
 class FederatedRSFFedSurFClient(fl.client.Client):
     """
-    FedSurF++ Client following the algorithm from the paper:
+    FedSurF++ Client (EXACT paper implementation):
     
-    Round 1 (Training):
-        1. Local Training: Train local RSF with n_trees_local trees
-        2. Tree Evaluation: Compute C-Index for each tree on validation set
-        3. Send to Server: Send ALL trees + C-Index scores
-    
-    Round 2+ (Evaluation):
-        - Load global forest from server
-        - Evaluate on test set
+    Round 1 (Metadata): Send Tk (num trees) and Nk (dataset size)
+    Round 2 (Tree Sampling): 
+        - Receive T'_k from server
+        - Evaluate trees with C-Index
+        - Sample T'_k trees proportionally
+        - Send selected trees
+    Round 3+ (Evaluation): Evaluate global forest
     """
 
     def __init__(self, cid, name, model, config, dataloaders):
-        """
-        Initialize FedSurF++ client.
-        
-        Args:
-            cid: Client ID
-            name: Client name (e.g., "center_0")
-            model: RSFFedSurFPlus model instance
-            config: Configuration object
-            dataloaders: Dictionary containing train/val/test data
-        """
+        """Initialize FedSurF++ client."""
         self.cid = cid
         self.name = name
         self.model = model
@@ -55,114 +45,208 @@ class FederatedRSFFedSurFClient(fl.client.Client):
         self.y_val = data["y_val"]
         self.X_test = data["X_test"]
         self.y_test = data["y_test"]
+        
+        # Store trained trees and scores for round 2
+        self.local_trees = None
+        self.tree_scores = None
 
     def fit(self, ins):
         """
-        FedSurF++ Training Phase (Round 1):
+        FedSurF++ fit() handles TWO different rounds:
         
-        Step 1: Local Training
-            - Train local RSF with n_trees_local trees
+        ROUND 1: Local Training + Metadata
+            - Train local RSF with Tk trees
+            - Send Tk and Nk to server
         
-        Step 2: Tree Evaluation (C-Index on validation set)
-            - Evaluate each tree individually on validation data
-            - Compute C-Index as the tree quality metric
+        ROUND 2: Tree Sampling + Transfer
+            - Receive T'_k from server
+            - Evaluate trees with C-Index
+            - Sample T'_k trees proportional to C-Index
+            - Send selected trees to server
+        """
+        # Determine which round by checking config
+        round_type = ins.config.get("round_type", "metadata")
         
-        Step 3: Send Results
-            - Send ALL trees + C-Index scores to server
-            - Server will handle tree assignment and sampling
+        if round_type == "metadata":
+            return self._fit_round1_metadata()
+        elif round_type == "tree_sampling":
+            return self._fit_round2_sampling(ins)
+        else:
+            raise ValueError(f"Unknown round_type: {round_type}")
+    
+    def _fit_round1_metadata(self):
+        """
+        ROUND 1: Local Training + Tree Evaluation + Send Metadata
+        
+        Algorithm steps (from pseudocode):
+        1. Train local RSF → get Tk trees
+        2. Send Tk (and Nk) to server for tree assignment
+        3. Compute Metric_j for each tree j ∈ Mk (Tree sampling section)
+           → This happens BEFORE receiving T'_k (computed while waiting)
         """
         self.logger.info(
-            f"[Client {self.cid}] FedSurF++ Training: "
+            f"[Client {self.cid}][Round 1] Local Training: "
             f"n_trees_local={self.config.n_trees_local}"
         )
 
         # ================================================================
-        # STEP 1: Local Training
+        # PHASE 1: Local Training (Paper: lines 1-3)
         # ================================================================
         self.model.fit(self.X_train, self.y_train)
-        trees = self.model.estimators_
-        n_trees = len(trees)
+        self.local_trees = self.model.estimators_
+        Tk = len(self.local_trees)
+        Nk = len(self.X_train)
 
         self.logger.info(
-            f"[Client {self.cid}] Local RSF trained: {n_trees} trees"
+            f"[Client {self.cid}][Round 1] Trained: "
+            f"Tk={Tk} trees, Nk={Nk} samples"
         )
 
         # ================================================================
-        # STEP 2: Tree Evaluation (C-Index per tree)
+        # TREE SAMPLING PREPARATION (Paper: "for j = 1 to Tk do")
+        # Compute Metric_j for each tree BEFORE receiving T'_k
+        # This follows the pseudocode structure exactly
         # ================================================================
-        # Following FedSurF++ paper: evaluate each tree on validation set
-        # using C-Index (Concordance Index without IPCW weighting)
+        self.logger.info(
+            f"[Client {self.cid}][Round 1] Computing C-Index for all {Tk} trees..."
+        )
         
         scores = []
-        for tree_idx, tree in enumerate(trees):
+        for tree_idx, tree in enumerate(self.local_trees):
             try:
-                # Get survival predictions from this single tree
                 surv_fns = tree.predict_survival_function(self.X_val)
-                
-                # Convert survival curves to risk scores
-                # Risk = -log(S(t_max)) where S(t_max) is survival at last observed time
                 risks = np.array([
                     -np.log(fn.y[-1] + 1e-8) for fn in surv_fns
                 ])
-
-                # Compute C-Index for this tree
                 c_index = concordance_index_censored(
                     self.y_val["event"],
                     self.y_val["time"],
                     risks
                 )[0]
-                
             except Exception as e:
-                # Fallback to 0.5 (random prediction) if tree evaluation fails
-                self.logger.warning(
-                    f"[Client {self.cid}] Tree {tree_idx} evaluation failed: {e}"
-                )
                 c_index = 0.5
 
             scores.append(c_index)
 
-        scores = np.array(scores)
-        
-        # Numerical safety: handle NaN and invalid scores
-        scores = np.nan_to_num(scores, nan=0.5)
-        scores[scores < 0.5] = 0.5  # C-Index should be at least 0.5 (random guess)
+        self.tree_scores = np.array(scores)
+        self.tree_scores = np.nan_to_num(self.tree_scores, nan=0.5)
+        self.tree_scores[self.tree_scores < 0.5] = 0.5
 
         self.logger.info(
-            f"[Client {self.cid}] Tree C-Index scores: "
-            f"mean={scores.mean():.4f}, min={scores.min():.4f}, max={scores.max():.4f}"
+            f"[Client {self.cid}][Round 1] Tree metrics computed: "
+            f"mean={self.tree_scores.mean():.4f}, "
+            f"range=[{self.tree_scores.min():.4f}, {self.tree_scores.max():.4f}]"
         )
 
         # ================================================================
-        # STEP 3: Send ALL trees + scores to server
+        # Send metadata (Tk, Nk) to server
         # ================================================================
-        # Server will perform:
-        #   - Tree Assignment: decide how many trees from this client
-        #   - Tree Sampling: sample trees proportional to C-Index
-        
-        payload = {
-            "trees": trees,
-            "scores": scores,
-            "n_samples": len(self.X_train),  # For weighted tree assignment
+        metadata = {
+            "Tk": Tk,
+            "Nk": Nk,
         }
 
         return FitRes(
-            status=Status(Code.OK, message="OK"),
+            status=Status(Code.OK, message="Metadata sent"),
             parameters=Parameters(
-                tensors=[pickle.dumps(payload)],
+                tensors=[pickle.dumps(metadata)],
+                tensor_type="pickle"
+            ),
+            num_examples=Nk,
+            metrics={"Tk": Tk, "Nk": Nk, "mean_c_index": float(self.tree_scores.mean())}
+        )
+    
+    def _fit_round2_sampling(self, ins):
+        """
+        ROUND 2: Tree Selection + Transfer
+        
+        Algorithm steps (Paper pseudocode):
+        1. Receive T'_k from server
+        2. Select T'_k trees using probabilities proportional to Metric_j
+           (Metrics already computed in Round 1)
+        3. Send selected trees to server
+        """
+        # ================================================================
+        # Receive T'_k from server (Paper: "Receive T'_k")
+        # ================================================================
+        Tk_prime = ins.config.get("Tk_prime", 0)
+        
+        self.logger.info(
+            f"[Client {self.cid}][Round 2] Received Tree Assignment: "
+            f"T'_k={Tk_prime} (out of {len(self.local_trees)} local trees)"
+        )
+        
+        if Tk_prime == 0:
+            # Client not selected - send empty
+            self.logger.info(f"[Client {self.cid}][Round 2] Not selected (T'_k=0)")
+            return FitRes(
+                status=Status(Code.OK, message="Not selected"),
+                parameters=Parameters(tensors=[pickle.dumps([])], tensor_type="pickle"),
+                num_examples=0,
+                metrics={"Tk_prime": 0}
+            )
+
+        # ================================================================
+        # PHASE 3: Tree Sampling (Paper: "Select T'_k trees using 
+        #          probabilities proportional to Metric_j")
+        # Use pre-computed metrics from Round 1
+        # ================================================================
+        if self.tree_scores is None:
+            raise RuntimeError(
+                f"[Client {self.cid}] Tree scores not computed! "
+                "This should not happen - Round 1 should compute scores."
+            )
+        
+        # Build probability distribution: p_j = Metric_j / Σ(Metric_j)
+        sampling_probs = self.tree_scores / self.tree_scores.sum()
+        
+        # Sample T'_k trees WITHOUT replacement
+        Tk_prime_capped = min(Tk_prime, len(self.local_trees))
+        
+        selected_indices = np.random.choice(
+            len(self.local_trees),
+            size=Tk_prime_capped,
+            replace=False,
+            p=sampling_probs
+        )
+        
+        selected_trees = [self.local_trees[i] for i in selected_indices]
+        selected_scores = self.tree_scores[selected_indices]
+
+        self.logger.info(
+            f"[Client {self.cid}][Round 2] Selected {len(selected_trees)} trees: "
+            f"C-Index range=[{selected_scores.min():.4f}, {selected_scores.max():.4f}]"
+        )
+
+        # ================================================================
+        # Send selected trees to server (Paper: "Send selected trees")
+        # ================================================================
+        return FitRes(
+            status=Status(Code.OK, message="Trees sent"),
+            parameters=Parameters(
+                tensors=[pickle.dumps(selected_trees)],
                 tensor_type="pickle"
             ),
             num_examples=len(self.X_train),
-            metrics={"n_trees": n_trees, "mean_c_index": float(scores.mean())}
+            metrics={
+                "Tk_prime": Tk_prime_capped,
+                "mean_selected_c_index": float(selected_scores.mean())
+            }
         )
 
     def evaluate(self, ins):
         """
-        FedSurF++ Evaluation Phase (Round 2+):
+        FedSurF++ Evaluation Phase (Round 3+):
         
         Load global federated forest from server and evaluate on test set.
         Uses the paper-style evaluation with C-Index, AUC, and IBS.
         """
-        self.logger.info(f"[Client {self.cid}] FedSurF++ Evaluation")
+        # Get the current round number from config
+        server_round = ins.config.get("server_round", 3)
+        
+        self.logger.info(
+            f"[Client {self.cid}][Round {server_round}] FedSurF++ Evaluation"
+        )
 
         # ================================================================
         # Load global forest from server
@@ -177,7 +261,7 @@ class FederatedRSFFedSurFClient(fl.client.Client):
         )
 
         self.logger.info(
-            f"[Client {self.cid}] Loaded global forest: "
+            f"[Client {self.cid}][Round {server_round}] Loaded global forest: "
             f"{len(global_forest)} trees"
         )
 
@@ -202,7 +286,7 @@ class FederatedRSFFedSurFClient(fl.client.Client):
         metrics["client_name"] = self.name
 
         self.logger.info(
-            f"[Client {self.cid}] Test Metrics → "
+            f"[Client {self.cid}][Round {server_round}] Test Metrics → "
             f"C-index={metrics.get('C-index', np.nan):.4f}, "
             f"AUC={metrics.get('AUC', np.nan):.4f}, "
             f"IBS={metrics.get('IBS', np.nan):.4f}"
@@ -213,14 +297,18 @@ class FederatedRSFFedSurFClient(fl.client.Client):
         # ================================================================
         try:
             append_metrics_to_csv(
-                round_num=2,  # Evaluation happens in round 2+
+                round_num=server_round,
                 client_id=self.cid,
                 metrics=metrics,
                 config=self.config
             )
+            self.logger.info(
+                f"[Client {self.cid}][Round {server_round}] Metrics saved to CSV"
+            )
         except Exception as e:
             self.logger.warning(
-                f"[Client {self.cid}] Failed to save metrics to CSV: {e}"
+                f"[Client {self.cid}][Round {server_round}] "
+                f"Failed to save metrics to CSV: {e}"
             )
 
         return EvaluateRes(

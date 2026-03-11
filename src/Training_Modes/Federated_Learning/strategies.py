@@ -1076,25 +1076,22 @@ class FedSurvForest(fl.server.strategy.FedAvg):
 
 class FedSurFPlusPlus(fl.server.strategy.FedAvg):
     """
-    FedSurF++ Strategy with C-Index based tree sampling.
+    FedSurF++ Strategy (PAPER-EXACT Implementation)
     
-    Implements the three-phase algorithm from the paper:
+    Implements the exact three-phase algorithm from the paper:
     
-    Phase 1: Local Training
-        - Each client trains local RSF with n_trees_local trees
+    ROUND 1: Metadata Collection + Tree Assignment
+        - Collect Tk and Nk from all clients
+        - Perform tree assignment: iteratively increment T'_k with probability ∝ Nk
+        - Send T'_k back to each client
     
-    Phase 2: Tree Assignment
-        - Server determines how many trees each client should contribute
-        - Assignment proportional to client dataset size (like FedAvg weighting)
+    ROUND 2: Tree Collection + Global Forest
+        - Each client samples T'_k trees proportional to C-Index
+        - Server receives exactly T'_k trees from each client
+        - Build global forest
     
-    Phase 3: Tree Sampling
-        - Each client samples trees proportional to C-Index scores
-        - Server collects exactly n_trees_federated trees globally
-    
-    Key Difference from FedSurvForest:
-        - Implements proper tree assignment step (weighted by dataset size)
-        - Clear separation of tree assignment and sampling phases
-        - Follows paper algorithm exactly with C-Index metric
+    ROUND 3+: Evaluation
+        - Distribute global forest to clients for evaluation
     """
 
     def __init__(
@@ -1110,9 +1107,10 @@ class FedSurFPlusPlus(fl.server.strategy.FedAvg):
         Initialize FedSurF++ strategy.
         
         Args:
-            num_trees_fed: Total number of trees in global forest (n_trees_federated)
+            num_trees_fed: T (total number of trees in global forest)
         """
         self.num_trees_fed = num_trees_fed
+        self.tree_assignment = {}  # Store T'_k for each client
 
         super().__init__(
             fraction_fit=fraction_fit,
@@ -1123,185 +1121,175 @@ class FedSurFPlusPlus(fl.server.strategy.FedAvg):
         )
         
         logging.getLogger("main").info(
-            f"[FedSurF++] Initialized with n_trees_federated={num_trees_fed}"
+            f"[FedSurF++] Initialized with T={num_trees_fed} (target global trees)"
         )
 
     def aggregate_fit(self, server_round, results, failures):
         """
-        FedSurF++ Tree Aggregation (Round 1 only).
-        
-        Implements Algorithm 1 from the paper:
-        
-        Step 1: Collect all trees and metadata from clients
-        Step 2: Tree Assignment - determine T'_k for each client k
-                (proportional to dataset size N_k)
-        Step 3: Tree Sampling - sample T'_k trees from client k
-                (proportional to C-Index scores)
-        Step 4: Build global forest with exactly n_trees_federated trees
+       Handle aggregation for different rounds:
+        - Round 1: Tree assignment
+        - Round 2: Build global forest
         """
         logger = logging.getLogger("main")
-        logger.info(f"[FedSurF++] Round {server_round}: Aggregating trees")
-
-        # Only aggregate in round 1
-        if server_round != 1:
+        
+        if server_round == 1:
+            return self._aggregate_round1_metadata(results, failures)
+        elif server_round == 2:
+            return self._aggregate_round2_trees(results, failures)
+        else:
             return None, {}
+    
+    def _aggregate_round1_metadata(self, results, failures):
+        """
+        ROUND 1: Tree Assignment (Paper Algorithm 1, lines 4-7)
+        
+        Steps:
+        1. Collect Tk and Nk from all clients
+        2. Perform iterative tree assignment with probability ∝ Nk
+        3. Ensure T'_k ≤ Tk for all clients
+        4. Return None (no parameters to broadcast yet)
+        """
+        logger = logging.getLogger("main")
+        logger.info("[FedSurF++][Round 1] Metadata Collection + Tree Assignment")
 
         # ================================================================
-        # STEP 1: Collect all trees and metadata
+        # Step 1: Collect metadata from clients
         # ================================================================
-        client_data = {}  # {client_id: {"trees": [...], "scores": [...], "n_samples": int}}
+        client_metadata = {}
         
         for client_proxy, fit_res in results:
             cid = getattr(client_proxy, "cid", "unknown")
+            metadata = pickle.loads(fit_res.parameters.tensors[0])
             
-            payload = pickle.loads(fit_res.parameters.tensors[0])
+            Tk = metadata["Tk"]
+            Nk = metadata["Nk"]
             
-            # Validate payload
-            if not isinstance(payload, dict):
-                raise ValueError(f"[FedSurF++] Client {cid} sent non-dict payload")
-            
-            if not all(k in payload for k in ["trees", "scores", "n_samples"]):
-                raise ValueError(
-                    f"[FedSurF++] Client {cid} missing required keys: "
-                    f"{payload.keys()}"
-                )
-            
-            trees = list(payload["trees"])
-            scores = np.asarray(payload["scores"])
-            n_samples = payload["n_samples"]
-            
-            if len(trees) != len(scores):
-                raise ValueError(
-                    f"[FedSurF++] Client {cid}: "
-                    f"{len(trees)} trees but {len(scores)} scores"
-                )
-            
-            # Numerical safety for scores
-            scores = np.nan_to_num(scores, nan=0.5)
-            scores[scores < 0.5] = 0.5
-            
-            client_data[cid] = {
-                "trees": trees,
-                "scores": scores,
-                "n_samples": n_samples,
-            }
+            client_metadata[cid] = {"Tk": Tk, "Nk": Nk}
             
             logger.info(
-                f"[FedSurF++] Client {cid}: "
-                f"n_samples={n_samples}, "
-                f"n_trees={len(trees)}, "
-                f"mean_C-index={scores.mean():.4f}"
+                f"[FedSurF++][Round 1] Client {cid}: Tk={Tk}, Nk={Nk}"
             )
 
         # ================================================================
-        # STEP 2: Tree Assignment (Algorithm 1, lines 4-7)
+        # Step 2: Tree Assignment (Algorithm 1, lines 4-7)
         # ================================================================
-        # Determine T'_k for each client k
-        # T'_k = number of trees client k should contribute
-        # Assignment proportional to dataset size N_k
+        # "The server iteratively increments a client counter T'_k
+        #  for a number of times equal to T (desired trees in final ensemble)
+        #  with probability proportional to Nk"
         
-        N_global = self.num_trees_fed  # T in paper
-        K = len(client_data)  # Number of clients
+        client_ids = list(client_metadata.keys())
+        K = len(client_ids)
+        T = self.num_trees_fed  # Total global trees
         
         # Get dataset sizes
-        client_ids = list(client_data.keys())
         dataset_sizes = np.array([
-            client_data[cid]["n_samples"] for cid in client_ids
+            client_metadata[cid]["Nk"] for cid in client_ids
         ])
-        
-        # Compute probabilities proportional to dataset size
         total_samples = dataset_sizes.sum()
+        
+        # Probability proportional to Nk
         probs = dataset_sizes / total_samples
         
         logger.info(
-            f"[FedSurF++] Tree Assignment Phase: "
-            f"total_samples={total_samples}, "
-            f"clients={client_ids}, "
-            f"probs={probs}"
+            f"[FedSurF++][Round 1] Tree Assignment: "
+            f"T={T}, K={K}, total_samples={total_samples}"
+        )
+        logger.info(
+            f"[FedSurF++][Round 1] Dataset sizes: "
+            + " | ".join([f"Client {cid}: {client_metadata[cid]['Nk']}" 
+                         for cid in client_ids])
         )
         
-        # Iteratively assign trees (Algorithm 1, lines 5-7)
-        # Increment T'_k with probability proportional to N_k
-        trees_per_client = np.zeros(K, dtype=int)
+        # Initialize T'_k = 0 for all clients
+        Tk_prime = np.zeros(K, dtype=int)
         
-        for _ in range(N_global):
-            # Sample a client proportional to dataset size
-            selected_client_idx = np.random.choice(K, p=probs)
-            trees_per_client[selected_client_idx] += 1
+        # Iteratively increment T'_k (Algorithm 1, lines 5-7)
+        for iteration in range(T):
+            # Sample a client with probability proportional to Nk
+            selected_idx = np.random.choice(K, p=probs)
+            Tk_prime[selected_idx] += 1
         
-        # Ensure no client is asked for more trees than available
+        # ================================================================
+        # Step 3: Ensure T'_k ≤ Tk (cannot exceed available trees)
+        # ================================================================
         for idx, cid in enumerate(client_ids):
-            available_trees = len(client_data[cid]["trees"])
-            if trees_per_client[idx] > available_trees:
+            Tk_available = client_metadata[cid]["Tk"]
+            if Tk_prime[idx] > Tk_available:
                 logger.warning(
-                    f"[FedSurF++] Client {cid} assigned {trees_per_client[idx]} "
-                    f"trees but only has {available_trees}. Clipping."
+                    f"[FedSurF++][Round 1] Client {cid}: "
+                    f"T'_k={Tk_prime[idx]} > Tk={Tk_available}. Capping."
                 )
-                trees_per_client[idx] = available_trees
+                Tk_prime[idx] = Tk_available
+        
+        # Store assignment for Round 2
+        self.tree_assignment = {
+            client_ids[idx]: int(Tk_prime[idx])
+            for idx in range(K)
+        }
         
         logger.info(
-            f"[FedSurF++] Tree Assignment Result: "
-            + " | ".join([
-                f"Client {cid}: {trees_per_client[idx]}"
-                for idx, cid in enumerate(client_ids)
-            ])
+            f"[FedSurF++][Round 1] Tree Assignment Result: "
+            + " | ".join([f"Client {cid}: T'_k={self.tree_assignment[cid]}" 
+                         for cid in client_ids])
         )
+        
+        # ================================================================
+        # Return None (no global model yet)
+        # ================================================================
+        return None, {}
+    
+    def _aggregate_round2_trees(self, results, failures):
+        """
+        ROUND 2: Collect Trees + Build Global Forest
+        
+        Steps:
+        1. Collect sampled trees from all clients
+        2. Each client sends exactly T'_k trees (sampled proportional to C-Index)
+        3. Build global forest by concatenating all trees
+        """
+        logger = logging.getLogger("main")
+        logger.info("[FedSurF++][Round 2] Tree Collection + Global Forest")
 
         # ================================================================
-        # STEP 3: Tree Sampling (Algorithm 1, lines 8-10)
+        # Collect trees from clients
         # ================================================================
-        # For each client, sample T'_k trees proportional to C-Index
-        
         global_forest = []
         
-        for idx, cid in enumerate(client_ids):
-            n_trees_to_sample = trees_per_client[idx]
+        for client_proxy, fit_res in results:
+            cid = getattr(client_proxy, "cid", "unknown")
+            trees = pickle.loads(fit_res.parameters.tensors[0])
             
-            if n_trees_to_sample == 0:
-                logger.info(f"[FedSurF++] Client {cid}: no trees sampled (T'_k=0)")
-                continue
-            
-            trees = client_data[cid]["trees"]
-            scores = client_data[cid]["scores"]
-            
-            # Build sampling distribution proportional to C-Index
-            sampling_probs = scores / scores.sum()
-            
-            # Sample trees (without replacement)
-            selected_indices = np.random.choice(
-                len(trees),
-                size=n_trees_to_sample,
-                replace=False,
-                p=sampling_probs
-            )
-            
-            # Add selected trees to global forest
-            selected_trees = [copy.deepcopy(trees[i]) for i in selected_indices]
-            global_forest.extend(selected_trees)
-            
-            logger.info(
-                f"[FedSurF++] Client {cid}: "
-                f"sampled {n_trees_to_sample} trees "
-                f"(C-index range: [{scores[selected_indices].min():.4f}, "
-                f"{scores[selected_indices].max():.4f}])"
-            )
+            if len(trees) > 0:
+                global_forest.extend(trees)
+                
+                logger.info(
+                    f"[FedSurF++][Round 2] Client {cid}: "
+                    f"received {len(trees)} trees "
+                    f"(expected T'_k={self.tree_assignment.get(cid, 0)})"
+                )
+            else:
+                logger.info(
+                    f"[FedSurF++][Round 2] Client {cid}: "
+                    f"no trees (T'_k=0)"
+                )
 
         # ================================================================
-        # STEP 4: Finalize global forest
+        # Build global forest
         # ================================================================
-        actual_trees = len(global_forest)
         logger.info(
-            f"[FedSurF++] Global forest built: "
-            f"{actual_trees} trees (target: {N_global})"
+            f"[FedSurF++][Round 2] Global forest built: "
+            f"{len(global_forest)} trees (target: {self.num_trees_fed})"
         )
         
-        if actual_trees < N_global:
+        if len(global_forest) < self.num_trees_fed:
             logger.warning(
-                f"[FedSurF++] Global forest has fewer trees than target "
-                f"({actual_trees} < {N_global})"
+                f"[FedSurF++][Round 2] Received fewer trees than target "
+                f"({len(global_forest)} < {self.num_trees_fed})"
             )
 
-        # Send global forest to all clients
+        # ================================================================
+        # Send global forest to clients for evaluation
+        # ================================================================
         return (
             fl.common.Parameters(
                 tensors=[pickle.dumps(global_forest)],
@@ -1311,29 +1299,68 @@ class FedSurFPlusPlus(fl.server.strategy.FedAvg):
         )
 
     def configure_fit(self, server_round, parameters, client_manager):
-        """Configure client training (Round 1 only)."""
+        """
+        Configure client training for each round.
+        
+        Round 1: Metadata collection (all clients)
+        Round 2: Tree sampling (all clients with T'_k > 0)
+        Round 3+: No training
+        """
+        logger = logging.getLogger("main")
+        
         if server_round == 1:
-            # Round 1: all clients train local RSF
+            # Round 1: Metadata collection
+            logger.info("[FedSurF++][Round 1] Configuring metadata collection")
             sample = list(client_manager.all().values())
             fit_ins = fl.common.FitIns(
                 parameters=fl.common.Parameters(tensors=[], tensor_type=""),
-                config={}
+                config={"round_type": "metadata"}
             )
             return [(client, fit_ins) for client in sample]
         
-        # Round 2+: no training
+        elif server_round == 2:
+            # Round 2: Tree sampling
+            logger.info("[FedSurF++][Round 2] Configuring tree sampling")
+            sample = list(client_manager.all().values())
+            
+            # Send T'_k to each client
+            configs = []
+            for client in sample:
+                cid = getattr(client, "cid", "unknown")
+                Tk_prime = self.tree_assignment.get(cid, 0)
+                
+                fit_ins = fl.common.FitIns(
+                    parameters=fl.common.Parameters(tensors=[], tensor_type=""),
+                    config={
+                        "round_type": "tree_sampling",
+                        "Tk_prime": Tk_prime
+                    }
+                )
+                configs.append((client, fit_ins))
+            
+            return configs
+        
+        # Round 3+: No training
         return []
 
     def configure_evaluate(self, server_round, parameters, client_manager):
-        """Configure client evaluation (Round 2+ only)."""
-        if server_round <= 1:
+        """Configure client evaluation (Round 3+ only)."""
+        if server_round <= 2:
             return []
-        return super().configure_evaluate(server_round, parameters, client_manager)
+        
+        # Call parent to get standard evaluation configuration
+        configs = super().configure_evaluate(server_round, parameters, client_manager)
+        
+        # Add server_round to config so clients can use it for CSV logging
+        for config in configs:
+            config.config["server_round"] = server_round
+        
+        return configs
 
     def aggregate_evaluate(self, server_round, results, failures):
         """Aggregate and log evaluation metrics."""
         logger = logging.getLogger("main")
-        logger.info(f"[FedSurF++] Round {server_round}: Aggregating evaluation")
+        logger.info(f"[FedSurF++][Round {server_round}] Evaluation")
 
         if not results:
             logger.warning(f"[FedSurF++] No evaluation results")
@@ -1341,11 +1368,11 @@ class FedSurFPlusPlus(fl.server.strategy.FedAvg):
 
         # Log per-client metrics
         for _, eval_res in results:
-            cid = eval_res.metrics["cid"]
+            cid = eval_res.metrics.get("cid", "unknown")
             m = eval_res.metrics
             logger.info(
                 f"[FedSurF++][Client {cid}] "
-                f"C-index={m['C-index']:.4f} | "
+                f"C-index={m.get('C-index', np.nan):.4f} | "
                 f"AUC={m.get('AUC', np.nan):.4f} | "
                 f"IBS={m.get('IBS', np.nan):.4f}"
             )
