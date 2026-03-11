@@ -303,7 +303,7 @@ class DatasetManager:
 
             dataloaders[center] = {"train": df_train_stacked, "val": None, "test": df_test_stacked}
         
-        elif self.config.model.lower() in ["rsf", "deepsurv"]:
+        elif self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf"]:
             # IMPORTANT: Split FIRST, then normalize to avoid data leakage
             # Event-aware train/validation split (FedSurF++)
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
