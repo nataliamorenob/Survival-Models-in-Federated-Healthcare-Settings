@@ -7,6 +7,8 @@ Implements the exact three-phase algorithm from the paper.
 import flwr as fl
 import pickle
 import numpy as np
+import os
+from datetime import datetime
 from flwr.common import FitRes, EvaluateRes, Parameters, Status, Code
 from utils import evaluate_rsf
 from sksurv.metrics import concordance_index_censored
@@ -322,14 +324,32 @@ class FederatedRSFFedSurFClient(fl.client.Client):
         # Save metrics to CSV (for experiment tracking)
         # ================================================================
         try:
-            append_metrics_to_csv(
-                round_num=server_round,
-                client_id=self.cid,
-                metrics=metrics,
-                config=self.config
+            run_id = os.environ.get("RUN_ID", "unknown")
+            
+            csv_path = os.environ.get(
+                "OUTPUT_CSV",
+                os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                    "results_randomness_exps",
+                    f"run_{run_id}.csv"
+                )
             )
+
+            append_metrics_to_csv(
+                csv_path,
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "run_id": run_id,
+                    "round": server_round,
+                    "client_id": self.cid,
+                    "c_index": metrics["C-index"],
+                    "auc": metrics["AUC"],
+                    "ibs": metrics["IBS"],
+                }
+            )
+            
             self.logger.info(
-                f"[Client {self.cid}][Round {server_round}] Metrics saved to CSV"
+                f"[Client {self.cid}][Round {server_round}] Metrics saved to {csv_path}"
             )
         except Exception as e:
             self.logger.warning(
