@@ -2,6 +2,7 @@ from Models.CustomCoxModel import CustomCoxModel
 from Models.CoxPH import CoxPH_model
 from Models.StackedLogisticRegression import StackedLogisticRegression
 from Models.FedSurF import SurvivalRandomForest
+from Models.RSF_FedSurF import RSFFedSurFPlus
 from Models.DeepSurv import DeepSurv
 
 class ModelManager:
@@ -36,6 +37,29 @@ class ModelManager:
                 min_samples_split=self.config.min_samples_split,
                 min_samples_leaf=self.config.min_samples_leaf,
                 random_state=client_seed)
+        
+        elif self.config.model == "RSF_FedSurF":
+            # FedSurF++ implementation with C-Index based tree sampling
+            client_seed = self.config.random_state + self.client_id
+            print(
+                f"[DEBUG][FedSurF++] Client {self.client_id} "
+                f"global_seed={self.config.random_state} "
+                f"client_seed={client_seed}"
+            )
+
+            # Both centralized and local use different number of trees
+            n_estimators = (
+                self.config.n_trees_federated
+                if self.config.training_mode in ("centralized", "local")
+                else self.config.n_trees_local
+            )
+
+            self.model = RSFFedSurFPlus(
+                n_estimators=n_estimators,
+                min_samples_split=self.config.min_samples_split,
+                min_samples_leaf=self.config.min_samples_leaf,
+                random_state=client_seed
+            )
         
         elif self.config.model == "DeepSurv":
             client_seed = self.config.random_state + self.client_id

@@ -373,6 +373,16 @@ def main(config: Config):
                 dataloaders=dataloaders
             ).to_client()
 
+        elif config.model == "RSF_FedSurF":
+            from Training_Modes.Federated_Learning.clientRSFFedSurF import FederatedRSFFedSurFClient
+            return FederatedRSFFedSurFClient(
+                cid=cid_int,
+                name=config.centers[cid_int],
+                model=model,
+                config=config,
+                dataloaders=dataloaders
+            ).to_client()
+
         elif config.model == "DeepSurv":
             from Training_Modes.Federated_Learning.clientDeepSurv import FederatedDeepSurvClient
             return FederatedDeepSurvClient(
@@ -437,6 +447,18 @@ def main(config: Config):
             num_trees_fed=config.n_trees_federated
         )
 
+    elif config.strategy == "FedSurFPlusPlus":
+        from Training_Modes.Federated_Learning.strategies import FedSurFPlusPlus
+        logger.info("[Global] Using FedSurF++ strategy (C-Index based)")
+        strategy = FedSurFPlusPlus(
+            fraction_fit=1.0,
+            fraction_evaluate=1.0,
+            min_fit_clients=config.num_clients,
+            min_evaluate_clients=config.num_clients,
+            min_available_clients=config.num_clients,
+            num_trees_fed=config.n_trees_federated
+        )
+
     elif config.strategy == "CustomFedAvg":
         logger.info("[Global] Using CustomFedAvg strategy")
         strategy = CustomFedAvg(
@@ -473,14 +495,23 @@ if __name__ == "__main__":
     #     strategy="FedProx"  # FedAdam, FedProx and FedAvg available for DeepSurv
     # )
 
-    # FEDERATED RSF TRAINING:
+    # FEDERATED RSF TRAINING (Original FedSurF):
+    # user_config = Config(
+    #     model="RSF",
+    #     centers=[0, 1, 2, 3, 4],
+    #     training_mode="federated",
+    #     num_clients=5,
+    #     strategy="FedSurvForest",
+    #     eval_grid_mode="global"  # or "client"
+    # )
+
+    # FEDERATED RSF_FedSurF TRAINING (FedSurF++ with C-Index):
     user_config = Config(
-        model="RSF",
+        model="RSF_FedSurF",
         centers=[0, 1, 2, 3, 4],
         training_mode="federated",
         num_clients=5,
-        strategy="FedSurvForest",
-        # num_rounds=2,
+        strategy="FedSurFPlusPlus",
         eval_grid_mode="global"  # or "client"
     )
 
