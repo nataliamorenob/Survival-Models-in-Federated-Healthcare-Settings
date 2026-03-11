@@ -165,7 +165,38 @@ class FederatedRSFFedSurFClient(fl.client.Client):
         2. Select T'_k trees using probabilities proportional to Metric_j
            (Metrics already computed in Round 1)
         3. Send selected trees to server
+        
+        NOTE: In Flower simulation, clients are recreated each round,
+        so we need to retrain if local_trees is None.
         """
+        # ================================================================
+        # Handle client state recreation (Flower simulation issue)
+        # ================================================================
+        if self.local_trees is None or self.tree_scores is None:
+            self.logger.info(
+                f"[Client {self.cid}][Round 2] Client state lost - retraining model"
+            )
+            # Retrain model and recompute scores
+            self.model.fit(self.X_train, self.y_train)
+            self.local_trees = self.model.estimators_
+            
+            # Recompute tree scores
+            scores = []
+            for tree in self.local_trees:
+                try:
+                    surv_fns = tree.predict_survival_function(self.X_val)
+                    risks = np.array([-np.log(fn.y[-1] + 1e-8) for fn in surv_fns])
+                    c_index = concordance_index_censored(
+                        self.y_val["event"], self.y_val["time"], risks
+                    )[0]
+                except Exception:
+                    c_index = 0.5
+                scores.append(c_index)
+            
+            self.tree_scores = np.array(scores)
+            self.tree_scores = np.nan_to_num(self.tree_scores, nan=0.5)
+            self.tree_scores[self.tree_scores < 0.5] = 0.5
+        
         # ================================================================
         # Receive T'_k from server (Paper: "Receive T'_k")
         # ================================================================
@@ -189,13 +220,8 @@ class FederatedRSFFedSurFClient(fl.client.Client):
         # ================================================================
         # PHASE 3: Tree Sampling (Paper: "Select T'_k trees using 
         #          probabilities proportional to Metric_j")
-        # Use pre-computed metrics from Round 1
+        # Use pre-computed (or freshly computed) metrics
         # ================================================================
-        if self.tree_scores is None:
-            raise RuntimeError(
-                f"[Client {self.cid}] Tree scores not computed! "
-                "This should not happen - Round 1 should compute scores."
-            )
         
         # Build probability distribution: p_j = Metric_j / Σ(Metric_j)
         sampling_probs = self.tree_scores / self.tree_scores.sum()
