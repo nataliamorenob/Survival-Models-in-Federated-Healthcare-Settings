@@ -1352,10 +1352,21 @@ class FedSurFPlusPlus(fl.server.strategy.FedAvg):
         configs = super().configure_evaluate(server_round, parameters, client_manager)
         
         # Add server_round to config so clients can use it for CSV logging
-        for config in configs:
-            config.config["server_round"] = server_round
+        # configs is List[(ClientProxy, EvaluateIns)]
+        updated_configs = []
+        for client, evaluate_ins in configs:
+            # Update the config dict in EvaluateIns
+            new_config = dict(evaluate_ins.config) if evaluate_ins.config else {}
+            new_config["server_round"] = server_round
+            
+            # Create new EvaluateIns with updated config
+            new_evaluate_ins = fl.common.EvaluateIns(
+                parameters=evaluate_ins.parameters,
+                config=new_config
+            )
+            updated_configs.append((client, new_evaluate_ins))
         
-        return configs
+        return updated_configs
 
     def aggregate_evaluate(self, server_round, results, failures):
         """Aggregate and log evaluation metrics."""
