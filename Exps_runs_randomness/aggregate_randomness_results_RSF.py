@@ -4,7 +4,7 @@ from pathlib import Path
 # ---------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------
-RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps")
+RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/RSF_new/E2/Local/100l_200f/c4")
 N_RUNS = 10
 
 OUTPUT_CLIENT_CSV = RESULTS_DIR / "summary_per_client_mean_std.csv"

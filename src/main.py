@@ -508,9 +508,9 @@ if __name__ == "__main__":
     # FEDERATED RSF_FedSurF TRAINING (FedSurF++ with C-Index):
     user_config = Config(
         model="RSF_FedSurF",
-        centers=[0, 1, 2, 3, 4],
-        training_mode="federated",
-        num_clients=5,
+        centers=[4],
+        training_mode="local",
+        num_clients=1,
         strategy="FedSurFPlusPlus",
         eval_grid_mode="global"  # or "client"
     )
