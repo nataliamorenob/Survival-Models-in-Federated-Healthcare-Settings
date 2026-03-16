@@ -4,13 +4,23 @@ import os
 from pathlib import Path
 
 
+FEDERATED_TRAIN_SAMPLES_BY_CENTER = {
+    0: 173,
+    1: 109,
+    2: 123,
+    3: 96,
+    4: 92,
+    5: 0,
+}
+
+
 
 def get_current_timestamp() -> str:
     """Returns the current timestamp as a formatted string."""
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def get_nb_max_rounds(num_updates, batch_size, num_clients=5, num_epochs_pooled=30, total_train_samples=578):
+def get_nb_max_rounds(num_updates, batch_size, num_clients=5, num_epochs_pooled=30, total_train_samples=593):
     """
     Calculate the number of federated rounds needed to match the computational budget
     of centralized training.
@@ -26,15 +36,15 @@ def get_nb_max_rounds(num_updates, batch_size, num_clients=5, num_epochs_pooled=
         batch_size: Batch size used for training
         num_clients: Number of federated clients (default: 5 for TCGA-BRCA centers 0-4)
         num_epochs_pooled: Target epochs for centralized training (default: 30)
-        total_train_samples: Actual training samples (default: 578 for 5 centers)
+        total_train_samples: Actual post-split train samples used for FL
     
     Returns:
         Number of federated rounds needed
     
     Example:
-        With 578 samples, 5 clients, batch_size=8, num_epochs_pooled=30, num_updates=100:
-        - Avg samples per client: 578 // 5 = 115
-        - Updates per epoch: 115 // 8 = 14
+        With 593 samples, 5 clients, batch_size=8, num_epochs_pooled=30, num_updates=100:
+        - Avg samples per client: 593 // 5 = 118
+        - Updates per epoch: 118 // 8 = 14
         - Total updates for 30 epochs: 14 * 30 = 420
         - Rounds needed: 420 // 100 = 4
     """
@@ -64,7 +74,7 @@ class Config:
     num_epochs: int = 30  # Used for centralized/local training AND as num_epochs_pooled for round calculation
     num_updates_per_round: int = 100  # Fixed number of gradient updates per client per round (Owkin FLamby approach)
     batch_size: int = 8
-    total_train_samples: int = 578  # Actual training samples for 5 centers (0-4) - validation done separately
+    total_train_samples: int = 593  # Actual post-split FL train samples for 5 centers (0-4)
     #num_time_bins: int = 100
     strategy: str = "FedAvg"
     #lr: float = 0.0005  # Reduced from 0.001 for more stable training
@@ -122,6 +132,17 @@ class Config:
         self.results_dir = results_dir
         self.experiment_dir = experiment_dir
         self.cache_dir = cache_dir
+
+        self.num_clients = len(self.centers)
+        if self.training_mode == "federated":
+            unknown_centers = sorted(set(self.centers) - set(FEDERATED_TRAIN_SAMPLES_BY_CENTER))
+            if unknown_centers:
+                raise ValueError(
+                    f"Unsupported center ids for federated total_train_samples: {unknown_centers}"
+                )
+            self.total_train_samples = sum(
+                FEDERATED_TRAIN_SAMPLES_BY_CENTER[center] for center in self.centers
+            )
         
         # Calculate num_rounds dynamically if not set (for federated training)
         if self.num_rounds is None and self.training_mode == "federated":
@@ -142,13 +163,16 @@ class Config:
                     num_epochs_pooled=self.num_epochs,
                     total_train_samples=self.total_train_samples
                 )
-                print(f"[Config] Calculated num_rounds = {self.num_rounds} (based on {self.num_updates_per_round} updates/round)")
+                print(
+                    f"[Config] Calculated num_rounds = {self.num_rounds} "
+                    f"(based on {self.num_updates_per_round} updates/round, "
+                    f"centers={self.centers}, "
+                    f"total_train_samples={self.total_train_samples})"
+                )
         elif self.num_rounds is None:
             # For centralized/local training, num_rounds is not used
             self.num_rounds = 1
 
 # Global feature list for the TCGA-BRCA dataset
 ALL_FEATURE_COLUMNS = [f"feature_{i}" for i in range(39)]
-
-
 
