@@ -200,6 +200,66 @@ def run_local(config):
 		logger.info("[Local] DeepSurv evaluation finished.")
 		return metrics
 
+	if config.model.lower() == "coxph":
+		logger.info(f"[Local] Training CoxPH for {config.num_epochs} epochs with validation")
+
+		run_id = os.environ.get("RUN_ID", "unknown")
+		log_dir = os.path.join(config.experiment_dir, "client_logs")
+		os.makedirs(log_dir, exist_ok=True)
+		log_file = os.path.join(log_dir, f"local_center{config.centers[0]}_coxph_training.log")
+
+		logger.info(f"[Local] Training logs will be saved to: {log_file}")
+
+		with open(log_file, 'a') as f:
+			f.write(f"\n{'='*80}\n")
+			f.write(f"RUN {run_id} - LOCAL COXPH TRAINING (Center {config.centers[0]}) - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+			f.write(f"{'='*80}\n")
+
+		model.fit(
+			data["X_train"],
+			data["y_train"],
+			X_val=data["X_val"],
+			y_val=data["y_val"],
+			verbose=True,
+			client_id=f"local_{config.centers[0]}",
+			log_file=log_file
+		)
+		logger.info("[Local] CoxPH training completed")
+
+		metrics = evaluate_deepsurv(
+			model,
+			data={
+				"X_test": data["X_test"],
+				"y_test": data["y_test"],
+				"y_train": data["y_train"],
+			},
+			client_id=0,
+			config=config,
+		)
+
+		csv_path = os.environ.get(
+			"OUTPUT_CSV",
+			os.path.join(
+				os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+				"results_randomness_exps",
+				f"run_{run_id}.csv",
+			),
+		)
+
+		append_metrics_to_csv(
+			csv_path,
+			{
+				"timestamp": datetime.now().isoformat(),
+				"run_id": run_id,
+				"client_id": "local_0",
+				"c_index": metrics["C-index"],
+				"auc": metrics.get("AUC", float('nan')),
+				"ibs": metrics.get("IBS", float('nan')),
+			},
+		)
+		logger.info("[Local] CoxPH evaluation finished.")
+		return metrics
+
 	raise NotImplementedError(
 		f"Local training not implemented for model: {config.model}"
 	)

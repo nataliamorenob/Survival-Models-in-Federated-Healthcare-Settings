@@ -1,9 +1,10 @@
 from Models.CustomCoxModel import CustomCoxModel
-from Models.CoxPH import CoxPH_model
+from Models.CoxPH import CoxPHModel
 from Models.StackedLogisticRegression import StackedLogisticRegression
 from Models.FedSurF import SurvivalRandomForest
 from Models.RSF_FedSurF import RSFFedSurFPlus
 from Models.DeepSurv import DeepSurv
+from config import ALL_FEATURE_COLUMNS
 
 class ModelManager:
     def __init__(self, config, client_id):
@@ -13,7 +14,26 @@ class ModelManager:
 
     def initialize_model(self):
         if self.config.model == "CoxPH":
-            self.model = CoxPH_model
+            client_seed = self.config.random_state + self.client_id
+            print(
+                f"[DEBUG] Client {self.client_id} "
+                f"global_seed={self.config.random_state} "
+                f"client_seed={client_seed}"
+            )
+
+            num_updates = None
+            if self.config.training_mode == "federated":
+                num_updates = getattr(self.config, "num_updates_per_round", 100)
+
+            self.model = CoxPHModel(
+                n_features=len(ALL_FEATURE_COLUMNS),
+                lr=getattr(self.config, "lr", 0.001),
+                l2_reg=getattr(self.config, "deepsurv_l2_reg", 0.0),
+                epochs=getattr(self.config, "num_epochs", 100),
+                batch_size=getattr(self.config, "batch_size", 64),
+                random_state=client_seed,
+                num_updates_per_round=num_updates,
+            )
         elif self.config.model == "SLR":
             self.model = StackedLogisticRegression()
         elif self.config.model == "RSF":
@@ -76,7 +96,7 @@ class ModelManager:
                 num_updates = getattr(self.config, 'num_updates_per_round', 100)
             
             self.model = DeepSurv(
-                n_features=39,  # TCGA-BRCA has 39 features
+                n_features=len(ALL_FEATURE_COLUMNS),
                 hidden_layers=getattr(self.config, 'deepsurv_hidden_layers', [64, 32, 16]),
                 dropout=getattr(self.config, 'deepsurv_dropout', 0.3),
                 batch_norm=getattr(self.config, 'deepsurv_batch_norm', True),

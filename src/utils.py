@@ -1109,7 +1109,8 @@ def evaluate_deepsurv(model, data, client_id, config):
     )
     
     logger = logging.getLogger("main")
-    logger.info(f"[Client {client_id}] Evaluating DeepSurv (paper-style, full metrics)...")
+    model_name = getattr(config, "model", "DeepSurv")
+    logger.info(f"[Client {client_id}] Evaluating {model_name} (paper-style, full metrics)...")
     
     # ---------------------------------------------------------
     # Unpack data
@@ -1145,7 +1146,7 @@ def evaluate_deepsurv(model, data, client_id, config):
     
     # DEBUG: print eval_times info
     print(
-        f"\n[DEBUG][Client {client_id}] DeepSurv eval_times ({len(eval_times)} points):"
+        f"\n[DEBUG][Client {client_id}] {model_name} eval_times ({len(eval_times)} points):"
     )
     print(np.array2string(eval_times, precision=6, separator=", "))
     print()

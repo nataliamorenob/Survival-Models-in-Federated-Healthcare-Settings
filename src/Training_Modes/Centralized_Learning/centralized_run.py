@@ -323,6 +323,93 @@ def run_centralized(config):
 		logger.info("[Centralized] DeepSurv evaluation finished.")
 		return metrics_summary
 
+	if config.model.lower() == "coxph":
+		logger.info(f"[Centralized] Training CoxPH for {config.num_epochs} epochs with validation")
+
+		run_id = os.environ.get("RUN_ID", "unknown")
+		log_dir = os.path.join(config.experiment_dir, "client_logs")
+		os.makedirs(log_dir, exist_ok=True)
+		log_file = os.path.join(log_dir, "centralized_coxph_training.log")
+
+		logger.info(f"[Centralized] Training logs will be saved to: {log_file}")
+
+		with open(log_file, 'a') as f:
+			f.write(f"\n{'='*80}\n")
+			f.write(f"RUN {run_id} - CENTRALIZED COXPH TRAINING - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+			f.write(f"{'='*80}\n")
+
+		model.fit(
+			global_data["X_train"],
+			global_data["y_train"],
+			X_val=global_data["X_val"],
+			y_val=global_data["y_val"],
+			verbose=True,
+			client_id="centralized",
+			log_file=log_file
+		)
+		logger.info("[Centralized] CoxPH training completed")
+
+		metrics_summary["global"] = evaluate_deepsurv(
+			model,
+			data={
+				"X_test": global_data["X_test"],
+				"y_test": global_data["y_test"],
+				"y_train": global_data["y_train"],
+			},
+			client_id=0,
+			config=config,
+		)
+
+		for center, center_data in per_center.items():
+			metrics_summary["per_center"][center] = evaluate_deepsurv(
+				model,
+				data={
+					"X_test": center_data["X_test"],
+					"y_test": center_data["y_test"],
+					"y_train": global_data["y_train"],
+				},
+				client_id=center,
+				config=config,
+			)
+
+		run_id = os.environ.get("RUN_ID", "unknown")
+		csv_path = os.environ.get(
+			"OUTPUT_CSV",
+			os.path.join(
+				os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+				"results_randomness_exps",
+				f"run_{run_id}.csv",
+			),
+		)
+
+		append_metrics_to_csv(
+			csv_path,
+			{
+				"timestamp": datetime.now().isoformat(),
+				"run_id": run_id,
+				"client_id": "centralized_global",
+				"c_index": metrics_summary["global"]["C-index"],
+				"auc": metrics_summary["global"].get("AUC", float('nan')),
+				"ibs": metrics_summary["global"].get("IBS", float('nan')),
+			},
+		)
+
+		for center, metrics in metrics_summary["per_center"].items():
+			append_metrics_to_csv(
+				csv_path,
+				{
+					"timestamp": datetime.now().isoformat(),
+					"run_id": run_id,
+					"client_id": f"centralized_{center}",
+					"c_index": metrics["C-index"],
+					"auc": metrics.get("AUC", float('nan')),
+					"ibs": metrics.get("IBS", float('nan')),
+				},
+			)
+
+		logger.info("[Centralized] CoxPH evaluation finished.")
+		return metrics_summary
+
 	raise NotImplementedError(
 		f"Centralized training not implemented for model: {config.model}"
 	)

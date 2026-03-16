@@ -393,6 +393,16 @@ def main(config: Config):
                 dataloaders=dataloaders
             ).to_client()
 
+        elif config.model == "CoxPH":
+            from Training_Modes.Federated_Learning.clientCoxPH import FederatedCoxPHClient
+            return FederatedCoxPHClient(
+                cid=cid_int,
+                name=config.centers[cid_int],
+                model=model,
+                config=config,
+                dataloaders=dataloaders
+            ).to_client()
+
         elif config.model == "SLR":
             return FederatedCoxClient(
                 cid=cid_int,
@@ -406,8 +416,8 @@ def main(config: Config):
     # =====================================================================
     # 4. Build Strategy
     # =====================================================================
-    if config.model == "DeepSurv":
-        # Select FL strategy for DeepSurv based on config.strategy
+    if config.model in ("DeepSurv", "CoxPH"):
+        # Select FL strategy for neural Cox models based on config.strategy
         from Training_Modes.Federated_Learning.strategies import get_strategy
         from flwr.common import ndarrays_to_parameters
         
@@ -426,7 +436,7 @@ def main(config: Config):
         # Convert to Flower Parameters format
         initial_parameters = ndarrays_to_parameters(initial_params)
         
-        logger.info(f"[Global] Using {config.strategy} strategy for DeepSurv")
+        logger.info(f"[Global] Using {config.strategy} strategy for {config.model}")
         strategy = get_strategy(
             config.strategy,
             fraction_fit=1.0,

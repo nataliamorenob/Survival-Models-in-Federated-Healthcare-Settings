@@ -250,27 +250,7 @@ class DatasetManager:
 
         # MDEL-SPECIFIC HANDELING:------------------------>
         
-        # CoxPH model
-        if self.config.model.lower() == "coxph":
-            # Normalize BEFORE split for CoxPH (no validation set)
-            if "feature_0" in df_train.columns:
-                age_mean = df_train["feature_0"].mean()
-                age_std = df_train["feature_0"].std()
-                if age_std == 0:
-                    age_std = 1.0
-
-                for df in [df_train, df_test]:
-                    df["feature_0"] = (df["feature_0"] - age_mean) / age_std
-
-                self.log_and_print(
-                    f"[Center {center}] Normalized feature_0 (age): mean={age_mean:.2f}, std={age_std:.2f}"
-                )
-            
-            self.log_and_print(f"[Center {center}] Model=CoxPH → Using train/test directly.")
-            dataloaders[center] = {"train": df_train, "val": None, "test": df_test}
-
-        # Stacked Logistic Regression (SLR) model
-        elif self.config.model.lower() == "slr":
+        if self.config.model.lower() == "slr":
             # Normalize BEFORE split for SLR (no validation set)
             if "feature_0" in df_train.columns:
                 age_mean = df_train["feature_0"].mean()
@@ -303,7 +283,7 @@ class DatasetManager:
 
             dataloaders[center] = {"train": df_train_stacked, "val": None, "test": df_test_stacked}
         
-        elif self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf"]:
+        elif self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf", "coxph"]:
             # IMPORTANT: Split FIRST, then normalize to avoid data leakage
             # Event-aware train/validation split (FedSurF++)
             df_train_split, df_val = self._split_train_val_event_aware(df_train, center)
@@ -458,7 +438,7 @@ class DatasetManager:
         df_train = self._to_dataframe(train_ds)
         df_test = self._to_dataframe(test_ds)
 
-        if self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf"]:
+        if self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf", "coxph"]:
             # Log pre-split statistics for debugging
             self.log_and_print(
                 f"[Local] Pre-split data for center {center} → "
@@ -584,8 +564,8 @@ class DatasetManager:
 
         per_center = {}
 
-        # Random Survival Forest (RSF) and DeepSurv models
-        if self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf"]:
+        # Survival models sharing the structured-array pipeline
+        if self.config.model.lower() in ["rsf", "deepsurv", "rsf_fedsurf", "coxph"]:
             # Validation checks BEFORE split
             self.log_and_print(
                 f"[Centralized] Pre-split validation → "
@@ -687,7 +667,7 @@ class DatasetManager:
             self.log_and_print("[Centralized] Finished building centralized dataloaders")
             return {"global": global_data, "per_center": per_center}
 
-        # If model is not RSF/DeepSurv, raise error
+        # If model is not part of the survival-array pipeline, raise error
         raise ValueError(f"[Centralized] Unsupported model: {self.config.model}")
 
     # ----------------------------------------------------------------------
