@@ -5,7 +5,7 @@ from pathlib import Path
 # CONFIG
 # ---------------------------------------------------------
 #RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps")
-RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/32,32ArchitectureFlamby/Federated/FedAdam/5cl")
+RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps")
 #RESULTS_DIR = Path("/scratch/project_2015651/Masters_thesis/results_randomness_exps/Federated/DeepSurv/3cl/30rounds_3cl_FedProx")
 #RESULTS_DIR = Path("/Users/nataliamorenoblasco/Desktop/Master_Thesis/Exps_runs_randomness")
 
@@ -31,7 +31,7 @@ df_all = pd.concat(dfs, ignore_index=True)
 print("Loaded rows (all rounds):", len(df_all))
 
 # ---------------------------------------------------------
-# FILTER ONLY ROUND 10
+# FILTER ONLY ROUND 4
 # ---------------------------------------------------------
 df_all = df_all[df_all["round"] == 4]
 
@@ -39,7 +39,7 @@ print("Rows after filtering round == 4:", len(df_all))
 print(df_all.head(), "\n")
 
 # ---------------------------------------------------------
-# 1) PER-CLIENT: mean ± std over runs (round 10 only)
+# 1) PER-CLIENT: mean ± std over runs (round 4 only)
 # ---------------------------------------------------------
 summary_per_client = (
     df_all

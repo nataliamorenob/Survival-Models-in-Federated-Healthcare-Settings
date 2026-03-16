@@ -495,15 +495,25 @@ def main(config: Config):
 
 
 if __name__ == "__main__":
-    # FEDERATED DEEPSURV TRAINING (Local Risk Set Approximation):
+    # FEDERATED DEEPSURV TRAINING:
     # user_config = Config(
     #     model="DeepSurv",
-    #     centers=[0, 1, 2, 3, 4],
+    #     centers=[0, 1, 2],
     #     training_mode="federated",
-    #     num_clients=5,
+    #     num_clients=3,
     #     num_epochs=30,  # Local epochs per round
-    #     strategy="FedProx"  # FedAdam, FedProx and FedAvg available for DeepSurv
+    #     strategy="FedAvg"  # FedAdam, FedProx and FedAvg available for DeepSurv
     # )
+
+    # FEDERATED COXPH TRAINING:
+    user_config = Config(
+        model="CoxPH",
+        centers=[0, 1, 2, 3, 4],
+        training_mode="federated",
+        num_clients=5,
+        num_epochs=30,  # Local epochs per round
+        strategy="FedProx"  # FedAdam, FedProx and FedAvg available for DeepSurv
+    )
 
     # FEDERATED RSF TRAINING (Original FedSurF):
     # user_config = Config(
@@ -515,15 +525,15 @@ if __name__ == "__main__":
     #     eval_grid_mode="global"  # or "client"
     # )
 
-    # FEDERATED RSF_FedSurF TRAINING (FedSurF++ with C-Index):
-    user_config = Config(
-        model="RSF_FedSurF",
-        centers=[4],
-        training_mode="local",
-        num_clients=1,
-        strategy="FedSurFPlusPlus",
-        eval_grid_mode="global"  # or "client"
-    )
+    # FEDERATED RSF_FedSurF TRAINING (FedSurF++):
+    # user_config = Config(
+    #     model="RSF_FedSurF",
+    #     centers=[4],
+    #     training_mode="local",
+    #     num_clients=1,
+    #     strategy="FedSurFPlusPlus",
+    #     eval_grid_mode="global"  # or "client"
+    # )
 
     # # CENTRALIZED TRAINING:
     # user_config = Config(
