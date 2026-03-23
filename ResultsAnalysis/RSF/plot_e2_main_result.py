@@ -8,8 +8,8 @@ Design:
 - Subplots: C-index, AUC, IBS
 
 For each training paradigm, E2 reports results for tree settings 50, 100, 200.
-This script collapses them to one bar per paradigm using the best-performing
-tree setting for each metric and client count.
+This script uses the fixed 100-tree configuration for Local, Federated, and
+Centralized across all metrics and client counts.
 """
 
 from __future__ import annotations
@@ -30,13 +30,12 @@ from matplotlib.patches import Patch
 plt.style.use("seaborn-v0_8-whitegrid")
 
 OUTPUT_PATH = Path(__file__).with_name("figure_2_E2_RSF.png")
-REDUCTION = "best_per_metric"
 FIXED_LOCAL_TREE = 100
 FIXED_FED_TREE = 100
+FIXED_CENTRALIZED_TREE = 100
 
 PARADIGMS = ["Local", "Federated", "Centralized"]
 CLIENT_COUNTS = [5, 4, 3]
-TREE_CONFIGS = [50, 100, 200]
 
 LOCAL_COLOR = "#D55E00"  # reddish-orange
 FEDERATED_COLOR = "#0072B2"  # blue
@@ -225,31 +224,13 @@ def aggregate_metric(metric_data: dict[str, list[float]]) -> tuple[float, float]
 
 
 def reduce_paradigm_results(client_count: int, paradigm: str, metric_name: str) -> tuple[float, float, int]:
-    if paradigm == "Local":
-        mean_value, std_value = aggregate_metric(RAW_RESULTS[client_count][paradigm][FIXED_LOCAL_TREE][metric_name])
-        return mean_value, std_value, FIXED_LOCAL_TREE
-    if paradigm == "Federated":
-        mean_value, std_value = aggregate_metric(RAW_RESULTS[client_count][paradigm][FIXED_FED_TREE][metric_name])
-        return mean_value, std_value, FIXED_FED_TREE
-
-    config_results = {}
-    for tree_config, metrics in RAW_RESULTS[client_count][paradigm].items():
-        config_results[tree_config] = aggregate_metric(metrics[metric_name])
-
-    if REDUCTION == "mean_across_configs":
-        means = [result[0] for result in config_results.values()]
-        stds = [result[1] for result in config_results.values()]
-        mean_value = float(np.mean(means))
-        propagated_std = math.sqrt(sum(std * std for std in stds)) / len(stds)
-        return mean_value, propagated_std, -1
-
-    if metric_name == "ibs":
-        selected_config = min(config_results, key=lambda config: config_results[config][0])
-    else:
-        selected_config = max(config_results, key=lambda config: config_results[config][0])
-
-    mean_value, propagated_std = config_results[selected_config]
-    return mean_value, propagated_std, selected_config
+    fixed_tree_config = {
+        "Local": FIXED_LOCAL_TREE,
+        "Federated": FIXED_FED_TREE,
+        "Centralized": FIXED_CENTRALIZED_TREE,
+    }[paradigm]
+    mean_value, std_value = aggregate_metric(RAW_RESULTS[client_count][paradigm][fixed_tree_config][metric_name])
+    return mean_value, std_value, fixed_tree_config
 
 
 def get_plot_values(metric_name: str) -> tuple[dict[int, list[float]], dict[int, list[float]], dict[int, dict[str, int]]]:
@@ -307,6 +288,7 @@ def plot_e2_main_result() -> None:
     fig, axes = plt.subplots(1, 3, figsize=(16, 5.5))
 
     reduction_notes = []
+    mean_summaries = []
 
     for ax, (metric_key, title) in zip(axes, metric_specs):
         values_by_config, errors_by_config, selected_tree_by_config = get_plot_values(metric_key)
@@ -354,6 +336,18 @@ def plot_e2_main_result() -> None:
             for paradigm in PARADIGMS
         )
         reduction_notes.append(f"{title}: {note}")
+        mean_summaries.append(
+            (
+                title,
+                {
+                    paradigm: [
+                        values_by_config[client_count][PARADIGMS.index(paradigm)]
+                        for client_count in client_counts_for_plot
+                    ]
+                    for paradigm in PARADIGMS
+                },
+            )
+        )
 
     legend_handles = [
         Patch(facecolor=COLORS[paradigm], edgecolor="black", label=paradigm)
@@ -364,6 +358,15 @@ def plot_e2_main_result() -> None:
     fig.savefig(OUTPUT_PATH, dpi=300, bbox_inches="tight")
 
     print(f"Saved figure to: {OUTPUT_PATH}")
+    print("Mean values used in the plot:")
+    for title, series in mean_summaries:
+        print(f"{title}:")
+        for paradigm, y_values in series.items():
+            values_text = ", ".join(
+                f"{client_count}C={value:.3f}"
+                for client_count, value in zip(client_counts_for_plot, y_values)
+            )
+            print(f"  - {paradigm}: {values_text}")
     print("Reduction summary:")
     for note in reduction_notes:
         print(f"  - {note}")

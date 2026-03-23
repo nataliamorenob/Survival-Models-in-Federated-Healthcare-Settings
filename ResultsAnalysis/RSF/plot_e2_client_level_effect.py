@@ -6,8 +6,8 @@ Design:
 - Y-axis: delta = Federated - Local
 - Subplots: C-index, AUC, IBS
 
-For the federated side, this script uses the best-performing federated tree
-setting per metric in the 5-client configuration.
+This script uses the fixed 100-tree configuration for both Local and
+Federated in the 5-client configuration.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ plt.style.use("seaborn-v0_8-whitegrid")
 
 OUTPUT_PATH = Path(__file__).with_name("figure_3_E2_RSF.png")
 CLIENT_COUNT = 5
-TREE_CONFIGS = [50, 100, 200]
 FIXED_LOCAL_TREE = 100
 FIXED_FED_TREE = 100
 
@@ -85,27 +84,12 @@ RAW_RESULTS = {
     },
 }
 
-
-def aggregate_metric(metric_data: dict[str, list[float]]) -> float:
-    return float(np.mean(metric_data["means"]))
-
-
-def get_best_tree_config(paradigm: str, metric_name: str) -> int:
-    scores = {
-        tree_config: aggregate_metric(RAW_RESULTS[paradigm][tree_config][metric_name])
-        for tree_config in TREE_CONFIGS
-    }
-    if metric_name == "ibs":
-        return min(scores, key=scores.get)
-    return max(scores, key=scores.get)
-
-
 def compute_delta(metric_name: str) -> tuple[np.ndarray, np.ndarray, int, int]:
-    best_fed_tree = FIXED_FED_TREE
-    best_local_tree = FIXED_LOCAL_TREE
+    fed_tree = FIXED_FED_TREE
+    local_tree = FIXED_LOCAL_TREE
 
-    fed_data = RAW_RESULTS["Federated"][best_fed_tree][metric_name]
-    local_data = RAW_RESULTS["Local"][best_local_tree][metric_name]
+    fed_data = RAW_RESULTS["Federated"][fed_tree][metric_name]
+    local_data = RAW_RESULTS["Local"][local_tree][metric_name]
 
     fed_means = np.array(fed_data["means"], dtype=float)
     local_means = np.array(local_data["means"], dtype=float)
@@ -114,7 +98,7 @@ def compute_delta(metric_name: str) -> tuple[np.ndarray, np.ndarray, int, int]:
 
     deltas = fed_means - local_means
     delta_stds = np.sqrt(fed_stds**2 + local_stds**2)
-    return deltas, delta_stds, best_fed_tree, best_local_tree
+    return deltas, delta_stds, fed_tree, local_tree
 
 
 def add_value_labels(ax: plt.Axes, bars, values: np.ndarray) -> None:

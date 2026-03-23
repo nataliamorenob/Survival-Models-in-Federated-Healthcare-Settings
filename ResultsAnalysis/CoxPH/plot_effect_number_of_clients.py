@@ -134,6 +134,7 @@ def add_value_labels(ax: plt.Axes, x_values: list[int], y_values: list[float], c
 def plot_effect_number_of_clients() -> None:
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 5.0))
     federated_notes = []
+    mean_summaries = []
 
     for ax, (metric_key, metric_label) in zip(axes, METRIC_SPECS):
         federated_values, selected_strategies = reduce_federated(metric_key)
@@ -149,6 +150,7 @@ def plot_effect_number_of_clients() -> None:
             "Federated": federated_values,
             "Centralized": [RESULTS["Centralized"][client_count][metric_key] for client_count in CLIENT_COUNTS],
         }
+        mean_summaries.append((metric_label, series))
 
         for paradigm, y_values in series.items():
             style = LINE_STYLES[paradigm]
@@ -180,6 +182,15 @@ def plot_effect_number_of_clients() -> None:
     fig.savefig(OUTPUT_PATH, dpi=300, bbox_inches="tight")
 
     print(f"Saved figure to: {OUTPUT_PATH}")
+    print("Mean values used in the plot:")
+    for metric_label, series in mean_summaries:
+        print(f"{metric_label}:")
+        for paradigm, y_values in series.items():
+            values_text = ", ".join(
+                f"{client_count}C={value:.3f}"
+                for client_count, value in zip(CLIENT_COUNTS, y_values)
+            )
+            print(f"  - {paradigm}: {values_text}")
     print("Federated reduction summary:")
     for note in federated_notes:
         print(f"  - {note}")
