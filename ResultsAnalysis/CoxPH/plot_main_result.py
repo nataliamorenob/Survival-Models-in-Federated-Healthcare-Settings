@@ -197,7 +197,7 @@ def add_value_labels(ax: plt.Axes, bars, values: list[float], errors: list[float
             f"{value:.2f}",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=9.6,
         )
 
 
@@ -250,10 +250,10 @@ def plot_main_result() -> None:
             add_value_labels(ax, bars, values, errors)
 
         ax.set_xticks(x)
-        ax.set_xticklabels([str(client_count) for client_count in client_counts_for_plot], fontsize=11)
-        ax.set_xlabel("Number of clients", fontsize=11)
-        ax.set_title(title, fontsize=13, fontweight="bold")
-        ax.set_ylabel("Performance", fontsize=11)
+        ax.set_xticklabels([str(client_count) for client_count in client_counts_for_plot], fontsize=12.6)
+        ax.set_xlabel("Number of clients", fontsize=12.6)
+        ax.set_title(title, fontsize=14.6, fontweight="bold")
+        ax.set_ylabel("Performance", fontsize=12.6)
         ax.grid(axis="y", linestyle="--", alpha=0.35)
         ax.set_axisbelow(True)
 

@@ -111,7 +111,7 @@ def plot_federated_model_comparison() -> None:
         "CoxPH": 0.24,
     }
 
-    fig, axes = plt.subplots(1, 3, figsize=(18.5, 6.2))
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5.5))
 
     for ax, (metric_key, metric_label) in zip(axes, METRIC_SPECS):
         means_by_model, stds_by_model = collect_metric_values(metric_key)
@@ -158,9 +158,9 @@ def plot_federated_model_comparison() -> None:
         loc="upper center",
         ncol=3,
         frameon=False,
-        bbox_to_anchor=(0.5, 1.02),
+        bbox_to_anchor=(0.5, 0.98),
     )
-    fig.subplots_adjust(left=0.06, right=0.98, bottom=0.14, top=0.86, wspace=0.28)
+    fig.subplots_adjust(left=0.06, right=0.97, bottom=0.14, top=0.84, wspace=0.28)
     fig.savefig(OUTPUT_PATH, dpi=300, bbox_inches="tight")
 
     print(f"Saved figure to: {OUTPUT_PATH}")

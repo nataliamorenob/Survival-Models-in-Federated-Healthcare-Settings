@@ -105,7 +105,7 @@ def add_value_labels(ax: plt.Axes, bars, values: np.ndarray) -> None:
             f"{value:+.2f}",
             ha="center",
             va=va,
-            fontsize=8,
+            fontsize=9.6,
             bbox={
                 "facecolor": "white",
                 "edgecolor": "none",
@@ -141,10 +141,10 @@ def plot_client_level_effect() -> None:
 
             ax.axhline(0.0, color="black", linewidth=1.0)
             ax.set_xticks(x)
-            ax.set_xticklabels(clients, fontsize=11)
-            ax.set_xlabel("Clients", fontsize=11)
-            ax.set_ylabel("Delta (Federated - Local)", fontsize=11)
-            ax.set_title(metric_label, fontsize=13, fontweight="bold")
+            ax.set_xticklabels(clients, fontsize=12.6)
+            ax.set_xlabel("Clients", fontsize=12.6)
+            ax.set_ylabel("Delta (Federated - Local)", fontsize=12.6)
+            ax.set_title(metric_label, fontsize=14.6, fontweight="bold")
             ax.grid(axis="y", linestyle="--", alpha=0.35)
             ax.set_axisbelow(True)
 
@@ -158,7 +158,7 @@ def plot_client_level_effect() -> None:
                     1.06,
                     f"{client_count} clients",
                     transform=ax.transAxes,
-                    fontsize=12,
+                    fontsize=13.6,
                     fontweight="bold",
                 )
 

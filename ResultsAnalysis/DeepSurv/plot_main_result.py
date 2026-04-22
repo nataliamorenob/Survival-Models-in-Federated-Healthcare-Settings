@@ -9,8 +9,7 @@ Design:
 The federated setting contains three strategies in the attached results
 (FedAvg, FedProx, FedAdam). Since this figure compares training paradigms
 rather than FL strategies, the script summarizes federated performance with
-the best-performing federated strategy for each metric and client setting by
-default. Change FEDERATED_REDUCTION below if you want a different reduction.
+the FedAvg strategy for each metric and client setting.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ from matplotlib.patches import Patch
 plt.style.use("seaborn-v0_8-whitegrid")
 
 OUTPUT_PATH = Path(__file__).with_name("figure_1_DeepSurv.png")
-FEDERATED_REDUCTION = "best_per_metric"
+FEDERATED_STRATEGY = "FedAvg"
 
 PARADIGMS = ["Local", "Federated", "Centralized"]
 CLIENT_CONFIGS = [5, 4, 3]
@@ -150,24 +149,9 @@ def aggregate_metric(metric_data: dict[str, list[float]]) -> tuple[float, float]
 
 
 def reduce_federated_results(client_count: int, metric_name: str) -> tuple[float, float, str]:
-    strategy_results = {}
-    for strategy_name, metrics in RAW_RESULTS[client_count]["Federated"].items():
-        strategy_results[strategy_name] = aggregate_metric(metrics[metric_name])
-
-    if FEDERATED_REDUCTION == "mean_across_strategies":
-        means = [result[0] for result in strategy_results.values()]
-        stds = [result[1] for result in strategy_results.values()]
-        mean_value = float(np.mean(means))
-        propagated_std = math.sqrt(sum(std * std for std in stds)) / len(stds)
-        return mean_value, propagated_std, "Mean FL"
-
-    if metric_name == "ibs":
-        selected_strategy = min(strategy_results, key=lambda name: strategy_results[name][0])
-    else:
-        selected_strategy = max(strategy_results, key=lambda name: strategy_results[name][0])
-
-    mean_value, propagated_std = strategy_results[selected_strategy]
-    return mean_value, propagated_std, selected_strategy
+    metrics = RAW_RESULTS[client_count]["Federated"][FEDERATED_STRATEGY]
+    mean_value, propagated_std = aggregate_metric(metrics[metric_name])
+    return mean_value, propagated_std, FEDERATED_STRATEGY
 
 
 def get_plot_values(metric_name: str) -> tuple[dict[int, list[float]], dict[int, list[float]], dict[int, str]]:
@@ -197,7 +181,7 @@ def add_value_labels(ax: plt.Axes, bars, values: list[float], errors: list[float
             f"{value:.2f}",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=9.6,
         )
 
 
@@ -250,10 +234,10 @@ def plot_main_result() -> None:
             add_value_labels(ax, bars, values, errors)
 
         ax.set_xticks(x)
-        ax.set_xticklabels([str(client_count) for client_count in client_counts_for_plot], fontsize=11)
-        ax.set_xlabel("Number of clients", fontsize=11)
-        ax.set_title(title, fontsize=13, fontweight="bold")
-        ax.set_ylabel("Performance", fontsize=11)
+        ax.set_xticklabels([str(client_count) for client_count in client_counts_for_plot], fontsize=12.6)
+        ax.set_xlabel("Number of clients", fontsize=12.6)
+        ax.set_title(title, fontsize=14.6, fontweight="bold")
+        ax.set_ylabel("Performance", fontsize=12.6)
         ax.grid(axis="y", linestyle="--", alpha=0.35)
         ax.set_axisbelow(True)
 
