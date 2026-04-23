@@ -136,7 +136,6 @@ For `DeepSurv` and `CoxPH`, the main strategies available from [`src/Training_Mo
 
 For `RSF_FedSurF`, the repository includes:
 
-- `FedSurvForest`
 - `FedSurFPlusPlus`
 
 ## Example configuration pattern
@@ -173,24 +172,5 @@ After creating and activating the environment, the experiment can be launched fr
 python src/main.py
 ```
 
-On HPC/CSC, the repository also includes [`run_job.sh`](run_job.sh), which activates the virtual environment and launches `main.py` as a SLURM job.
 
-## Outputs
 
-The code creates experiment-specific outputs automatically:
-
-- `src/results/<experiment_id>/` for logs, caches, and runtime outputs
-- `results_randomness_exps/` for repeated-seed experiments and aggregated plots
-- `DataExploration/` and `ResultsAnalysis/` for exploratory and thesis-ready visualizations
-
-Note: the repository tree above reflects the files currently tracked in the repository. Runtime-generated files inside `src/results/` and experiment output folders may change from run to run.
-
-## Thesis focus of the repository
-
-In summary, this repository is organized so that:
-
-- [`src/main.py`](src/main.py) is the control center of the project
-- the training pipelines are separated by learning paradigm
-- the models are modular and selected through `ModelManager`
-- the dataset logic is centralized in `DatasetManager`
-- the plotting and analysis folders contain the material used to study, compare, and present the thesis results
