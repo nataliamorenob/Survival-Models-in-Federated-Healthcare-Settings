@@ -83,8 +83,6 @@ The main entry point is [`src/main.py`](src/main.py), where the experiment confi
 │       ├── figure_2_E2_RSF.png                    # RSF thesis figure 2.
 │       └── figure_3_E2_RSF.png                    # RSF thesis figure 3.
 │
-├── results_randomness_exps/                       # Stored outputs from repeated-randomness experiments.
-│   └── Federated/                                 # Saved federated experiment results and plots.
 │
 └── FLamby/                                        # Local FLamby directory/submodule area if present in the environment.
 ```
