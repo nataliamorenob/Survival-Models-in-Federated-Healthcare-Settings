@@ -89,7 +89,7 @@ The main entry point is [`src/main.py`](src/main.py), where the experiment confi
 
 ## How the project is controlled from `src/main.py`
 
-[`src/main.py`](src/main.py) is the script that orchestrates the full experiment. The user defines a `Config(...)` object at the bottom of the file and then launches the run.
+[`src/main.py`](src/main.py) is the script that manages the full experiment. The user defines a `Config(...)` object at the bottom of the file and then launches the run.
 
 From this script, the user can select:
 
