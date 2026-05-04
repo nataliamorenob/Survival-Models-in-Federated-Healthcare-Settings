@@ -32,6 +32,11 @@ METRIC_STYLES = {
     "ibs": {"label": "IBS", "color": "#D55E00", "marker": "^"},
 }
 
+TITLE_FONT_SIZE = 17
+LABEL_FONT_SIZE = 14
+TICK_FONT_SIZE = 13
+ANNOTATION_FONT_SIZE = 11.5
+
 
 def metric_entry(means: list[float], stds: list[float]) -> dict[str, list[float]]:
     return {"means": means, "stds": stds}
@@ -90,7 +95,7 @@ def add_value_labels(ax: plt.Axes, x_values: list[int], y_values: list[float], c
             textcoords="offset points",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=ANNOTATION_FONT_SIZE,
             color=color,
             bbox={
                 "facecolor": "white",
@@ -120,10 +125,11 @@ def plot_e1_local_trees() -> None:
         )
         add_value_labels(ax, LOCAL_TREES, mean_series, style["color"])
 
-        ax.set_title(style["label"], fontsize=13, fontweight="bold")
-        ax.set_xlabel("Local trees", fontsize=11)
-        ax.set_ylabel("Mean performance", fontsize=11)
+        ax.set_title(style["label"], fontsize=TITLE_FONT_SIZE, fontweight="bold")
+        ax.set_xlabel("Local trees", fontsize=LABEL_FONT_SIZE)
+        ax.set_ylabel("Mean performance", fontsize=LABEL_FONT_SIZE)
         ax.set_xticks(LOCAL_TREES)
+        ax.tick_params(axis="both", labelsize=TICK_FONT_SIZE)
         ax.grid(True, linestyle="--", alpha=0.35)
         ax.set_axisbelow(True)
 

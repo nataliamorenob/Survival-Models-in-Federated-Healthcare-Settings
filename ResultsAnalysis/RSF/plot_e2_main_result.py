@@ -47,6 +47,12 @@ COLORS = {
     "Centralized": CENTRALIZED_COLOR,
 }
 
+TITLE_FONT_SIZE = 17
+LABEL_FONT_SIZE = 14
+TICK_FONT_SIZE = 13
+ANNOTATION_FONT_SIZE = 11.5
+LEGEND_FONT_SIZE = 13
+
 
 def metric_entry(means: list[float], stds: list[float]) -> dict[str, list[float]]:
     return {"means": means, "stds": stds}
@@ -266,7 +272,7 @@ def add_value_labels(ax: plt.Axes, bars, values: list[float], errors: list[float
             f"{value:.2f}",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=ANNOTATION_FONT_SIZE,
         )
 
 
@@ -320,10 +326,11 @@ def plot_e2_main_result() -> None:
             add_value_labels(ax, bars, values, errors)
 
         ax.set_xticks(x)
-        ax.set_xticklabels([str(client_count) for client_count in client_counts_for_plot], fontsize=11)
-        ax.set_xlabel("Number of clients", fontsize=11)
-        ax.set_title(title, fontsize=13, fontweight="bold")
-        ax.set_ylabel("Performance", fontsize=11)
+        ax.set_xticklabels([str(client_count) for client_count in client_counts_for_plot], fontsize=TICK_FONT_SIZE)
+        ax.set_xlabel("Number of clients", fontsize=LABEL_FONT_SIZE)
+        ax.set_title(title, fontsize=TITLE_FONT_SIZE, fontweight="bold")
+        ax.set_ylabel("Performance", fontsize=LABEL_FONT_SIZE)
+        ax.tick_params(axis="y", labelsize=TICK_FONT_SIZE)
         ax.grid(axis="y", linestyle="--", alpha=0.35)
         ax.set_axisbelow(True)
 
@@ -353,7 +360,15 @@ def plot_e2_main_result() -> None:
         Patch(facecolor=COLORS[paradigm], edgecolor="black", label=paradigm)
         for paradigm in PARADIGMS
     ]
-    fig.legend(legend_handles, PARADIGMS, loc="upper center", ncol=3, frameon=False, bbox_to_anchor=(0.5, 0.98))
+    fig.legend(
+        legend_handles,
+        PARADIGMS,
+        loc="upper center",
+        ncol=3,
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.98),
+        fontsize=LEGEND_FONT_SIZE,
+    )
     fig.subplots_adjust(left=0.06, right=0.97, bottom=0.12, top=0.84, wspace=0.28)
     fig.savefig(OUTPUT_PATH, dpi=300, bbox_inches="tight")
 

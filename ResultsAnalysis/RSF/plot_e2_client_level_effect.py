@@ -42,6 +42,11 @@ FEDERATED_COLOR = "#0072B2"  # blue
 POSITIVE_COLOR = FEDERATED_COLOR
 NEGATIVE_COLOR = LOCAL_COLOR
 
+TITLE_FONT_SIZE = 17
+LABEL_FONT_SIZE = 14
+TICK_FONT_SIZE = 13
+ANNOTATION_FONT_SIZE = 11.5
+
 
 def metric_entry(means: list[float], stds: list[float]) -> dict[str, list[float]]:
     return {"means": means, "stds": stds}
@@ -113,7 +118,7 @@ def add_value_labels(ax: plt.Axes, bars, values: np.ndarray) -> None:
             f"{value:+.2f}",
             ha="center",
             va=va,
-            fontsize=8,
+            fontsize=ANNOTATION_FONT_SIZE,
             bbox={
                 "facecolor": "white",
                 "edgecolor": "none",
@@ -148,10 +153,11 @@ def plot_e2_client_level_effect() -> None:
 
         ax.axhline(0.0, color="black", linewidth=1.0)
         ax.set_xticks(x)
-        ax.set_xticklabels(clients, fontsize=11)
-        ax.set_xlabel("Clients", fontsize=11)
-        ax.set_ylabel("Delta (Federated - Local)", fontsize=11)
-        ax.set_title(metric_label, fontsize=13, fontweight="bold")
+        ax.set_xticklabels(clients, fontsize=TICK_FONT_SIZE)
+        ax.set_xlabel("Clients", fontsize=LABEL_FONT_SIZE)
+        ax.set_ylabel("Delta (Federated - Local)", fontsize=LABEL_FONT_SIZE)
+        ax.set_title(metric_label, fontsize=TITLE_FONT_SIZE, fontweight="bold")
+        ax.tick_params(axis="y", labelsize=TICK_FONT_SIZE)
         ax.grid(axis="y", linestyle="--", alpha=0.35)
         ax.set_axisbelow(True)
 

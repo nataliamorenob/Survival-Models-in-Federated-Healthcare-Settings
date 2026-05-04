@@ -41,6 +41,12 @@ LINE_STYLES = {
     "Centralized": {"color": CENTRALIZED_COLOR, "marker": "^"},
 }
 
+TITLE_FONT_SIZE = 17
+LABEL_FONT_SIZE = 14
+TICK_FONT_SIZE = 13
+ANNOTATION_FONT_SIZE = 11.5
+LEGEND_FONT_SIZE = 13
+
 METRIC_SPECS = [
     ("c_index", "C-index"),
     ("auc", "AUC"),
@@ -149,7 +155,7 @@ def add_value_labels(ax: plt.Axes, x_values: list[int], series: dict[str, list[f
                 textcoords="offset points",
                 ha=ha,
                 va=va,
-                fontsize=9.6,
+                fontsize=ANNOTATION_FONT_SIZE,
                 color=point["color"],
                 bbox={
                     "facecolor": "white",
@@ -190,10 +196,11 @@ def plot_effect_number_of_clients() -> None:
                 **style,
             )
 
-        ax.set_title(metric_label, fontsize=14.6, fontweight="bold")
-        ax.set_xlabel("Number of clients", fontsize=12.6)
-        ax.set_ylabel("Mean performance", fontsize=12.6)
+        ax.set_title(metric_label, fontsize=TITLE_FONT_SIZE, fontweight="bold")
+        ax.set_xlabel("Number of clients", fontsize=LABEL_FONT_SIZE)
+        ax.set_ylabel("Mean performance", fontsize=LABEL_FONT_SIZE)
         ax.set_xticks(CLIENT_COUNTS)
+        ax.tick_params(axis="both", labelsize=TICK_FONT_SIZE)
         ax.set_xlim(2.85, 5.15)
         ax.grid(True, linestyle="--", alpha=0.35)
         ax.set_axisbelow(True)
@@ -204,7 +211,15 @@ def plot_effect_number_of_clients() -> None:
         add_value_labels(ax, CLIENT_COUNTS, series)
 
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=3, frameon=False, bbox_to_anchor=(0.5, 1.01))
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        ncol=3,
+        frameon=False,
+        bbox_to_anchor=(0.5, 1.01),
+        fontsize=LEGEND_FONT_SIZE,
+    )
     fig.tight_layout(rect=[0.0, 0.0, 1.0, 0.90])
     fig.savefig(OUTPUT_PATH, dpi=300, bbox_inches="tight")
 

@@ -12,7 +12,6 @@ from datetime import datetime
 from flwr.common import FitRes, EvaluateRes, Parameters, Status, Code
 from utils import evaluate_rsf
 from sksurv.metrics import concordance_index_censored
-from Exps_runs_randomness.utils_results import append_metrics_to_csv
 import logging
 
 
