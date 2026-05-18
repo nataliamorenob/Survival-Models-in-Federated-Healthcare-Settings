@@ -10,6 +10,7 @@ __pycache__/
 *.so
 
 # --- Virtual environments ---
+.venv/
 venv/
 .env/
 .env*/
@@ -33,6 +34,8 @@ Thumbs.db
 *.ckpt
 *.h5
 *.pth
+logs/
+results_randomness_exps/
 results/
 checkpoints/
 scratch/

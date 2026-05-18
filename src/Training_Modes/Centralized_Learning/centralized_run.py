@@ -6,7 +6,7 @@ import numpy as np
 
 from dataset_manager import DatasetManager
 from model_manager import ModelManager
-from utils import evaluate_model, evaluate_rsf, evaluate_deepsurv
+from utils import evaluate_rsf, evaluate_deepsurv
 
 
 # def _build_global_eval_times_if_needed(config, train_df):

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from dataset_manager import DatasetManager
 from model_manager import ModelManager
-from utils import evaluate_model, evaluate_rsf, evaluate_deepsurv
+from utils import evaluate_rsf, evaluate_deepsurv
 from Exps_runs_randomness.utils_results import append_metrics_to_csv
 
 
