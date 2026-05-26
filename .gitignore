@@ -1,6 +1,19 @@
 # ignore results folder
 results/
 
+# Friedman/Dunn generated outputs
+friedman_dunn_detailed.log
+friedman_dunn_run_values.csv
+friedman_dunn_summary.csv
+friedman_dunn_summary_compact.csv
+friedman_dunn_summary_compact.md
+
+# Result folders
+CoxPH_allRuns/
+DeepSurv_allRuns/
+RSF_E2_allRuns/
+
+
 # --- Python build and cache files ---
 __pycache__/
 *.py[cod]
