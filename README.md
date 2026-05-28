@@ -1,6 +1,6 @@
 # Survival Models in Federated Healthcare Settings
 
-This repository contains the code developed for my thesis on survival analysis in healthcare settings under three training paradigms:
+This repository contains the code developed for survival analysis in healthcare settings under three training paradigms:
 
 - `federated` learning
 - `centralized` learning
@@ -18,6 +18,7 @@ The main entry point is [`src/main.py`](src/main.py), where the experiment confi
 
 ```text
 .
+├── .gitignore                                     # Ignore rules for local artifacts, caches, and experiment outputs.
 ├── README.md                                      # Project overview and usage guide.
 ├── requirements.txt                               # Full environment dependencies used during development.
 ├── clean_requirements.txt                         # Lighter dependency list for cleaner environment recreation.
@@ -46,17 +47,22 @@ The main entry point is [`src/main.py`](src/main.py), where the experiment confi
 │   │       ├── clientDeepSurv.py                  # Flower client implementation for federated DeepSurv.
 │   │       ├── clientRSFFedSurF.py                # Flower client implementation for federated RSF/FedSurF methods.
 │   │       ├── server.py                          # Older/custom server-side strategy prototype for federated Cox aggregation.
-│   │       └── task.py                            # Helper utilities for extracting/setting model weights.
+│   │       └── task.py                            # Helper utilities for extracting and setting model weights.
 │   │
-│   └── results/                                   # Runtime output folder created automatically per experiment (not tracked).
+│   └── results/                                   # Runtime output folder created automatically per experiment (typically not tracked).
 │
 ├── Exps_runs_randomness/                          # Scripts for aggregating repeated-run and randomness experiments.
 │   ├── aggregate_randomness_results_RSF.py        # Aggregates repeated-run results for RSF/FedSurF experiments.
 │   ├── aggregate_randomness_results_DeepSurv.py   # Aggregates repeated-run results for DeepSurv experiments.
-│   └── centralized_aggregate_results_DeepSurv.py  # Aggregates centralized DeepSurv repeated-run results.
+│   ├── centralized_aggregate_results_DeepSurv.py  # Aggregates centralized DeepSurv repeated-run results.
+│   ├── exps_seeds.sh                              # Batch launcher that executes all 10 repeated-seed runs sequentially.
+│   └── utils_results.py                           # Helper utilities for writing aggregated result tables.
 │
 ├── DataExploration/                               # Exploratory analysis material for understanding the dataset.
 │   └── dataset_exploration.ipynb                  # Notebook for inspecting the dataset and center distributions.
+│
+├── friedman_dunn_analysis/                        # Statistical significance analysis over saved experiment runs.
+│   └── run_friedman_dunn.py                       # Runs Friedman and Dunn post-hoc tests on experiment result CSVs.
 │
 ├── ResultsAnalysis/                               # Final analysis figures and plotting scripts grouped by model.
 │   ├── CoxPH/
@@ -83,8 +89,17 @@ The main entry point is [`src/main.py`](src/main.py), where the experiment confi
 │       ├── figure_2_E2_RSF.png                    # RSF thesis figure 2.
 │       └── figure_3_E2_RSF.png                    # RSF thesis figure 3.
 │
+├── Paper_plots/                                   # Cross-model paper-ready figures and plotting scripts.
+│   ├── plot_figure1_multimodel_client_counts.py   # Builds the multi-model comparison across client counts.
+│   ├── plot_coxph_client_variability.py           # Creates the CoxPH client-variability figure.
+│   ├── plot_deepsurv_client_variability.py        # Creates the DeepSurv client-variability figure.
+│   ├── plot_rsf_e2_client_variability.py          # Creates the RSF/FedSurF client-variability figure.
+│   ├── figure_1_multimodel_client_counts.png      # Saved multi-model comparison figure.
+│   ├── figure_2_coxph_client_variability.png      # Saved CoxPH variability figure.
+│   ├── figure_2_deepsurv_client_variability.png   # Saved DeepSurv variability figure.
+│   └── figure_2_rsf_e2_client_variability.png     # Saved RSF/FedSurF variability figure.
 │
-└── FLamby/                                        # Local FLamby directory/submodule area if present in the environment.
+└── FLamby/                                        # Local FLamby checkout/submodule placeholder used by the experiments.
 ```
 
 ## How the project is controlled from `src/main.py`
@@ -172,5 +187,11 @@ After creating and activating the environment, the experiment can be launched fr
 python src/main.py
 ```
 
+To run the repeated-seed batch experiment, use:
 
+```bash
+bash Exps_runs_randomness/exps_seeds.sh
+```
+
+This script executes all `10` runs sequentially (`run_1` to `run_10`), saves the CSV outputs in `results_randomness_exps/`, and writes one log file per run in `logs/`.
 
