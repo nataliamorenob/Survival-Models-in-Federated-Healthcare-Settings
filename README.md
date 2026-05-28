@@ -1,4 +1,4 @@
-# Survival Models in Federated Healthcare Settings
+# Federated Survival Analysis in Healthcare: A Multi-Model Evaluation on Cross-Institutional Heterogeneous Breast Cancer Data
 
 This repository contains the code developed for survival analysis in healthcare settings under three training paradigms:
 
